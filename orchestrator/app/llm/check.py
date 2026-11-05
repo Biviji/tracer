@@ -35,4 +35,6 @@ async def main(prompt: str) -> int:
 
 
 if __name__ == "__main__":
+    # Windows consoles default to cp1252, which can't print many characters models use.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(asyncio.run(main(" ".join(sys.argv[1:]) or "Reply with the single word: pong")))
