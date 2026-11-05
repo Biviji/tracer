@@ -12,10 +12,19 @@ Message = dict[str, Any]
 class LLMError(Exception):
     """The model provider failed or rejected the request."""
 
-    def __init__(self, message: str, *, status: int | None = None, retryable: bool = False):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retryable: bool = False,
+        retry_after_s: float | None = None,
+    ):
         super().__init__(message)
         self.status = status
         self.retryable = retryable
+        #: Provider-requested wait before retrying (Retry-After header), if any.
+        self.retry_after_s = retry_after_s
 
 
 class LLMClient(Protocol):

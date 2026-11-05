@@ -14,8 +14,17 @@ from app.llm.base import LLMError, Message
 
 log = logging.getLogger(__name__)
 
-MAX_ATTEMPTS = 3
+#: Free tiers rate-limit per minute, so allow enough attempts to ride out a window.
+MAX_ATTEMPTS = 6
+MAX_WAIT_S = 30.0
 RETRYABLE_STATUSES = {408, 409, 429, 500, 502, 503, 504}
+
+
+def _retry_after(res: httpx.Response) -> float | None:
+    try:
+        return max(0.0, float(res.headers["retry-after"]))
+    except (KeyError, ValueError):
+        return None
 
 
 class OpenAICompatibleClient:
@@ -45,8 +54,8 @@ class OpenAICompatibleClient:
             except LLMError as err:
                 if not err.retryable or attempt == MAX_ATTEMPTS:
                     raise
-                delay = 2 ** (attempt - 1)
-                log.warning("LLM call failed (%s), retry %d/%d in %ds", err, attempt, MAX_ATTEMPTS - 1, delay)
+                delay = min(err.retry_after_s or 2 ** (attempt - 1), MAX_WAIT_S)
+                log.warning("LLM call failed (%s), retry %d/%d in %.1fs", err, attempt, MAX_ATTEMPTS - 1, delay)
                 await asyncio.sleep(delay)
             except (KeyError, IndexError, TypeError) as err:
                 raise LLMError(f"Unexpected response shape from provider: {err!r}") from err
@@ -64,6 +73,7 @@ class OpenAICompatibleClient:
                 f"Model provider returned {res.status_code}: {res.text[:300]}",
                 status=res.status_code,
                 retryable=res.status_code in RETRYABLE_STATUSES,
+                retry_after_s=_retry_after(res),
             )
         return res.json()
 
