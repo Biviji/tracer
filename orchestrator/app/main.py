@@ -37,8 +37,8 @@ def create_app(
             log.warning("marked %d interrupted experiment(s) as failed: %s", len(interrupted), interrupted)
 
         bus = EventBus()
-        sandbox = driver or build_driver(settings)
         model = llm or build_llm(settings)
+        sandbox = driver or build_driver(settings, model)
         manager = ExperimentManager(settings, store, bus, sandbox)
         app.state.services = Services(settings, store, bus, sandbox, model, manager)
         log.info("orchestrator up: sandbox=%s inference=%s", sandbox.name, model.name)

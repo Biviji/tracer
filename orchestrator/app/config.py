@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     sandbox_memory_mb: int = Field(default=1024, ge=64)
     sandbox_cpus: float = Field(default=1.0, gt=0)
 
+    # ---- docker driver ----
+    sandbox_image: str = "trace-sandbox:latest"
+    #: Cap on agent tool calls per run; a run that hasn't answered by then fails.
+    agent_max_steps: int = Field(default=20, ge=1)
+    #: Wall-clock cap for one command the agent runs inside the sandbox.
+    command_timeout_s: int = Field(default=60, ge=1)
+    clone_timeout_s: int = Field(default=90, ge=5)
+    max_repo_mb: int = Field(default=200, ge=1)
+
     log_level: str = "INFO"
 
     @property
