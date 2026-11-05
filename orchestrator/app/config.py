@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ---- docker driver ----
     sandbox_image: str = "trace-sandbox:latest"
     #: Cap on agent tool calls per run; a run that hasn't answered by then fails.
-    agent_max_steps: int = Field(default=20, ge=1)
+    agent_max_steps: int = Field(default=40, ge=1)
     #: Conversation size kept per model call; older tool outputs are shrunk to fit.
     #: ~4 chars per token. Groq free tier caps a single request at 8000 tokens -> use ~20000.
     agent_context_chars: int = Field(default=40_000, ge=4_000)
