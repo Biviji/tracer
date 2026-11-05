@@ -23,8 +23,8 @@ MAX_RATE_LIMIT_WAIT_S = 1800.0
 MAX_WAIT_S = 30.0
 RETRYABLE_STATUSES = {408, 409, 429, 500, 502, 503, 504}
 #: Provider error codes on HTTP 400 that mean "the model produced a bad tool call;
-#: sampling again usually works" (e.g. Groq's tool_use_failed).
-RETRYABLE_400_CODES = {"tool_use_failed"}
+#: sampling again usually works" (Groq: tool_use_failed, output_parse_failed).
+RETRYABLE_400_CODES = {"tool_use_failed", "output_parse_failed"}
 
 
 def _retry_after(res: httpx.Response) -> float | None:
