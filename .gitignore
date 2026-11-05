@@ -1,0 +1,33 @@
+# ---- secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---- Python (orchestrator / runner) ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.sqlite
+*.sqlite3
+*.db
+
+# ---- Node (frontend) ----
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+
+# ---- local scratch (IDE sample stub at repo root) ----
+/main.py
