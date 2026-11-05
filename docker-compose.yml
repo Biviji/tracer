@@ -1,0 +1,21 @@
+# One command to run TRACE locally / on the Vultr VM:  docker compose up --build
+# The orchestrator and db services are added in the next milestone.
+services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Flip to "false" once the orchestrator service below exists.
+        NEXT_PUBLIC_USE_MOCK: "true"
+        NEXT_PUBLIC_API_URL: /api
+        ORCHESTRATOR_URL: http://orchestrator:8000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # orchestrator:
+  #   build: ./orchestrator
+  #   env_file: .env
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock   # spawns sandbox containers
+  #   expose: ["8000"]

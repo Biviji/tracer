@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TRACE — frontend
 
-## Getting Started
-
-First, run the development server:
+Next.js 16 (App Router, `cacheComponents`) + Tailwind v4.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local     # NEXT_PUBLIC_USE_MOCK=true -> no backend needed
+npm run dev                    # http://localhost:3000
+npm run lint && npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Routes
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Route               | Screen                                                        |
+| ------------------- | ------------------------------------------------------------- |
+| `/`                 | Latest experiment (live grid if running, report if done)      |
+| `/experiments/[id]` | Same, for a specific experiment — refresh-safe live view      |
+| `/new`              | Experiment config → `POST /experiments` → redirect to live    |
+| `/overview`         | Fleet aggregates by agent                                     |
+| `/compare`          | Two runs of one experiment, state in `?exp=&a=&b=`            |
+| `/reports`          | All saved experiments                                         |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Layout
 
-## Learn More
+```
+app/            thin route files only (no logic)
+components/
+  ui/           primitives: PageHeader, Panel, Tag, Table, StateBlock
+  layout/       Rail + NavLinks
+  views/        screen containers: fetch data, hold screen state
+  *.tsx         feature components: ScoreStrip, RunChips, TraceComparison,
+                SandboxGrid, Insights, ContainmentStrip (props in, JSX out)
+lib/
+  types.ts      API contract (mirrored by orchestrator Pydantic schemas)
+  api.ts        ALL orchestrator calls, behind the TraceApi interface
+  sse.ts        live stream client (/live/:id)
+  live.ts       pure reducer: LiveEvent -> sandbox grid state
+  mock/         in-browser backend implementing TraceApi (dev/demo)
+styles/tokens.css   palette — the single source of colours
+```
 
-To learn more about Next.js, take a look at the following resources:
+Rules: components never call `fetch`; scores come from the API, never computed in the UI;
+colours only via tokens (`bg-paper`, `text-accent`, …).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Backend wiring
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Browser → `/api/*` (same origin) → Next rewrite → `ORCHESTRATOR_URL`.
+Set `NEXT_PUBLIC_USE_MOCK=false` to use the real orchestrator. On connect, the SSE endpoint
+should emit the current state, since the UI seeds the grid from `GET /experiments/:id` and then
+applies events.
