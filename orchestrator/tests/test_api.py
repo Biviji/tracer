@@ -65,6 +65,8 @@ def test_full_experiment_lifecycle(tmp_path):
         exp = wait_for(client, summary["id"], {"completed"})
         assert all(r["status"] in {"pass", "fail", "error"} for r in exp["runs"])
         assert all(r["steps"] and r["durationS"] is not None for r in exp["runs"])
+        # every run that finished on its own reports an answer; killed runs don't
+        assert all((r["answer"] is None) == (r["status"] == "error") for r in exp["runs"])
         assert set(exp["scores"]) == {"reliability", "variance", "divergenceStep"}
         assert exp["insights"] is not None
         assert exp["limits"] == {"timeoutS": 300, "memoryMb": 1024, "cpus": 1.0, "network": "none"}

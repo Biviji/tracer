@@ -8,7 +8,19 @@ this scale. Moving to Postgres is the point to switch to an async driver.
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, selectinload
 
 from app.models.schemas import (
@@ -77,8 +89,15 @@ class RunRow(Base):
     tests_passed: Mapped[int | None] = mapped_column(Integer)
     tests_total: Mapped[int | None] = mapped_column(Integer)
     exit_reason: Mapped[str | None] = mapped_column(String(200))
+    answer: Mapped[str | None] = mapped_column(Text)
 
     experiment: Mapped[ExperimentRow] = relationship(back_populates="runs")
+
+
+#: Nullable columns added after the first release: (table, column, SQL type).
+#: Adding a nullable column is a metadata-only change — safe on existing data.
+#: Replace with Alembic once we move to Postgres.
+_ADDED_COLUMNS = [("runs", "answer", "TEXT")]
 
 
 def _iso(dt: datetime) -> str:
@@ -97,6 +116,7 @@ def _to_run(row: RunRow) -> Run:
             "tests_passed": row.tests_passed,
             "tests_total": row.tests_total,
             "exit_reason": row.exit_reason,
+            "answer": row.answer,
         }
     )
 
@@ -139,6 +159,11 @@ class Store:
 
     def init(self) -> None:
         Base.metadata.create_all(self._engine)
+        existing = inspect(self._engine)
+        with self._engine.begin() as conn:
+            for table, column, sql_type in _ADDED_COLUMNS:
+                if column not in {c["name"] for c in existing.get_columns(table)}:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"))
 
     def dispose(self) -> None:
         self._engine.dispose()

@@ -193,6 +193,7 @@ class ExperimentManager:
             tests_passed=result.tests_passed,
             tests_total=result.tests_total,
             exit_reason=result.exit_reason,
+            answer=result.answer,
         )
         self._bus.publish(exp_id, RunStatusEvent(run=index, status=result.outcome))
         self._bus.publish(exp_id, RunLogEvent(run=index, line=_final_line(result), level="ok" if result.outcome == "pass" else "error"))

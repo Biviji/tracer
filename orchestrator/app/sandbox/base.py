@@ -29,6 +29,7 @@ class RunResult:
     tests_passed: int | None = None
     tests_total: int | None = None
     exit_reason: str | None = None
+    answer: str | None = None
 
     @classmethod
     def killed(cls, reason: str) -> "RunResult":

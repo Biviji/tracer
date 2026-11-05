@@ -49,5 +49,23 @@ def test_restart_fails_interrupted_experiments(tmp_path):
     assert [(r.status, r.exit_reason) for r in after.runs] == [("pass", None), ("error", "orchestrator_restarted")]
 
 
+def test_init_adds_answer_column_to_an_old_database(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    store = Store(f"sqlite:///{db}")
+    store.init()
+    exp = store.create(repo="r", task="Fix the flaky loader test", agent=AGENT, runs=1, limits=LIMITS)
+    store.dispose()
+    with sqlite3.connect(db) as conn:  # simulate a DB created before `answer` existed
+        conn.execute("ALTER TABLE runs DROP COLUMN answer")
+
+    upgraded = Store(f"sqlite:///{db}")
+    upgraded.init()
+    upgraded.init()  # idempotent
+    upgraded.update_run(exp.id, 1, answer="done")
+    assert upgraded.get(exp.id).runs[0].answer == "done"
+
+
 def test_derive_title_cuts_on_word_boundary():
     assert derive_title("Make the payment retry logic idempotent and safe.") == "Make the payment retry logic"

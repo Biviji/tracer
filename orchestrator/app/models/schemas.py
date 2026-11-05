@@ -69,6 +69,8 @@ class Run(ApiModel):
     tests_passed: int | None = None
     tests_total: int | None = None
     exit_reason: str | None = None
+    #: The agent's final message: what it concluded / reports back. None if killed before answering.
+    answer: str | None = None
 
 
 # ---------- experiments ----------
