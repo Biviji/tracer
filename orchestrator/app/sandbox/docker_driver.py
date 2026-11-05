@@ -263,7 +263,13 @@ class DockerDriver:
             ws = _ContainerWorkspace(container, self._s.command_timeout_s)
             try:
                 result = await run_agent(
-                    self._llm, spec.model, spec.task, ws, report, max_steps=self._s.agent_max_steps
+                    self._llm,
+                    spec.model,
+                    spec.task,
+                    ws,
+                    report,
+                    max_steps=self._s.agent_max_steps,
+                    context_budget_chars=self._s.agent_context_chars,
                 )
             except LLMError as err:
                 log.warning("run %s#%d: model error: %s", spec.experiment_id, spec.run_index, err)

@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.llm import LLMClient, Message
+from app.llm import LLMClient, LLMError, Message
 from app.sandbox.base import RunReporter
 
 log = logging.getLogger(__name__)
@@ -130,6 +130,44 @@ async def _dispatch(ws: Workspace, name: str, args: dict[str, Any]) -> str:
         return f"ERROR: missing argument {missing} for {name}."
 
 
+ELIDED = "[older tool output removed to save space; call the tool again if you need it]"
+
+
+def _size(messages: list[Message]) -> int:
+    return sum(len(str(m.get("content") or "")) + len(json.dumps(m.get("tool_calls") or "")) for m in messages)
+
+
+def compact(messages: list[Message], budget_chars: int) -> list[Message]:
+    """Keep the conversation under a size budget by shrinking the OLDEST tool outputs first.
+
+    The task, the agent's own reasoning and the latest tool result are never removed,
+    so the agent keeps its plan and can always re-read what it needs.
+    """
+    if _size(messages) <= budget_chars:
+        return messages
+    out = [dict(m) for m in messages]
+    tool_idx = [i for i, m in enumerate(out) if m["role"] == "tool"][:-1]  # keep the newest intact
+    for i in tool_idx:
+        if _size(out) <= budget_chars:
+            break
+        if out[i]["content"] != ELIDED:
+            out[i]["content"] = ELIDED
+    return out
+
+
+async def _chat(llm: LLMClient, model: str, messages: list[Message], budget: int, **kw: Any) -> Message:
+    """Chat with compaction; if the provider still says "too large" (413), halve the budget and retry."""
+    for _ in range(4):
+        try:
+            return await llm.chat(model, compact(messages, budget), **kw)
+        except LLMError as err:
+            if err.status != 413:
+                raise
+            budget //= 2
+            log.info("request too large for %s, compacting context to %d chars", model, budget)
+    return await llm.chat(model, compact(messages, budget), **kw)
+
+
 def _assistant_message(reply: Message) -> Message:
     """Keep only standard fields: some providers add extras they reject on the way back."""
     msg: Message = {"role": "assistant", "content": reply.get("content")}
@@ -146,6 +184,7 @@ async def run_agent(
     report: RunReporter,
     *,
     max_steps: int,
+    context_budget_chars: int = 40_000,
 ) -> AgentResult:
     messages: list[Message] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -154,7 +193,7 @@ async def run_agent(
     calls_made = 0
 
     while calls_made < max_steps:
-        reply = await llm.chat(model, messages, tools=TOOLS)
+        reply = await _chat(llm, model, messages, context_budget_chars, tools=TOOLS)
         messages.append(_assistant_message(reply))
         tool_calls = reply.get("tool_calls") or []
         if not tool_calls:
@@ -183,6 +222,6 @@ async def run_agent(
     messages.append(
         {"role": "user", "content": "Step limit reached. Stop using tools and give your final answer now."}
     )
-    reply = await llm.chat(model, messages)
+    reply = await _chat(llm, model, messages, context_budget_chars)
     answer = (reply.get("content") or "").strip()
     return AgentResult(answer=answer or None, finished=False, tool_calls=calls_made)

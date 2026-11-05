@@ -103,6 +103,38 @@ def test_bad_tool_arguments_are_reported_back_not_crashing():
     assert llm.calls[1]["messages"][-1]["content"].startswith("ERROR: could not parse arguments")
 
 
+def test_compact_shrinks_oldest_tool_outputs_first():
+    from app.agent.loop import ELIDED, compact
+
+    msgs = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "task"},
+        {"role": "tool", "tool_call_id": "1", "content": "a" * 1000},
+        {"role": "tool", "tool_call_id": "2", "content": "b" * 1000},
+        {"role": "tool", "tool_call_id": "3", "content": "c" * 1000},
+    ]
+    out = compact(msgs, budget_chars=2200)
+    assert [m["content"][:1] for m in out[2:]] == [ELIDED[:1], "b", "c"]
+    assert out[1]["content"] == "task"
+    assert msgs[2]["content"] == "a" * 1000  # original untouched
+    assert compact(msgs, budget_chars=10) [-1]["content"] == "c" * 1000  # newest always kept
+
+
+def test_request_too_large_is_compacted_and_retried():
+    from app.llm import LLMError
+
+    class TooLargeOnce(ScriptedLLM):
+        async def chat(self, model, messages, **kw):
+            if not getattr(self, "failed", False):
+                self.failed = True
+                raise LLMError("too large", status=413)
+            return await super().chat(model, messages, **kw)
+
+    llm = TooLargeOnce([{"role": "assistant", "content": "answer"}])
+    result = asyncio.run(run_agent(llm, "m", "task", FakeWorkspace(), Reporter(), max_steps=3))
+    assert result.answer == "answer"
+
+
 def test_step_labels_are_comparable():
     assert step_label("run_command", {"command": "grep   -r  x ."}) == "run_command grep -r x ."
     assert step_label("list_files", {}) == "list_files ."
