@@ -1,0 +1,61 @@
+/*
+ * TRACE design tokens — the single source of truth for the brutalist palette.
+ * Components never use raw hex values; they use Tailwind utilities mapped in
+ * app/globals.css (bg-paper, text-ink, border-line, bg-accent, ...).
+ *
+ * Light is the default; dark follows the OS unless <html data-theme> overrides it.
+ */
+:root {
+  --paper: #f2f0eb; /* off-white ground */
+  --ink: #121212; /* near-black text */
+  --rail: #0c0c0c; /* nav rail */
+  --rail-ink: #edebe5; /* text on rail */
+  --rail-muted: #8a867e;
+  --accent: #d81e1e; /* the single red accent */
+  --accent-ink: #ffffff; /* text on accent */
+  --pass-bg: #e7f0e4;
+  --pass-line: #5b7a52;
+  --fail-bg: #f7dede;
+  --fail-line: #c23a3a;
+  --muted: #6e6a62; /* warm grey, biased to paper */
+  --line: #1a1a1a; /* borders */
+  --card: #f7f6f2; /* raised surface */
+  --warn: #b8702a; /* amber: running / mid reliability */
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper: #111110;
+  --ink: #edebe5;
+  --rail: #070707;
+  --accent: #f0453f;
+  --accent-ink: #120404;
+  --pass-bg: #16241b;
+  --pass-line: #6fa862;
+  --fail-bg: #2a1515;
+  --fail-line: #e06b6b;
+  --muted: #8e887c;
+  --line: #333027;
+  --card: #1a1917;
+  --warn: #d89a52;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111110;
+    --ink: #edebe5;
+    --rail: #070707;
+    --accent: #f0453f;
+    --accent-ink: #120404;
+    --pass-bg: #16241b;
+    --pass-line: #6fa862;
+    --fail-bg: #2a1515;
+    --fail-line: #e06b6b;
+    --muted: #8e887c;
+    --line: #333027;
+    --card: #1a1917;
+    --warn: #d89a52;
+    color-scheme: dark;
+  }
+}
