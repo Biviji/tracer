@@ -1,12 +1,17 @@
 import { pad2 } from "@/lib/format";
-import type { Run, SandboxLimits } from "@/lib/types";
+import type { SandboxLimits } from "@/lib/types";
+
+interface ContainmentStripProps {
+  limits: SandboxLimits;
+  /** Runs the sandbox had to kill (timeout, OOM, ...). */
+  killed?: { index: number; exitReason: string | null }[];
+}
 
 /**
  * What every sandbox was allowed to do, and every time the sandbox had to step in.
  * This is the "containment moment" the Blast Radius Zero track asks to show.
  */
-export function ContainmentStrip({ limits, runs }: { limits: SandboxLimits; runs: Run[] }) {
-  const killed = runs.filter((r) => r.status === "error");
+export function ContainmentStrip({ limits, killed = [] }: ContainmentStripProps) {
   const rules = [
     `${limits.timeoutS}s time cap`,
     `${limits.memoryMb} MB memory`,

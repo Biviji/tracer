@@ -25,6 +25,8 @@ import { DEFAULT_LIMITS, SEED_AGENTS, seedExperiments } from "./seed";
 
 const TICK_MS = 520;
 const LATENCY_MS = 120;
+/** Give the client time to navigate and subscribe before the first event. */
+const START_DELAY_MS = 700;
 const TOTAL_STEPS = 5;
 
 type Listener = (e: LiveEvent) => void;
@@ -260,7 +262,7 @@ export const mockBackend: TraceApi & {
     };
     experiments.unshift(exp);
     // Start after the response so the client can subscribe first.
-    setTimeout(() => simulate(exp, planRuns(exp.task, req.runs)), LATENCY_MS * 2);
+    setTimeout(() => simulate(exp, planRuns(exp.task, req.runs)), START_DELAY_MS);
     return respond(summary(exp));
   },
 

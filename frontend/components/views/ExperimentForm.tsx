@@ -1,0 +1,176 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
+import { api } from "@/lib/api";
+import { DEFAULT_RUN_COUNT, RUN_COUNT_OPTIONS } from "@/lib/config";
+import { errorMessage } from "@/lib/errors";
+import { useApi } from "@/lib/hooks/useApi";
+import { LockIcon } from "../ContainmentStrip";
+import { DottedRule, PageHeader } from "../ui/PageHeader";
+
+const MIN_TASK_LENGTH = 10;
+
+const fieldLabel = "mb-[7px] block text-[11px] tracking-[.14em] text-muted uppercase";
+const fieldInput =
+  "w-full border-2 border-line bg-card px-[13px] py-3 text-[13px] text-ink focus:outline-3 focus:-outline-offset-1 focus:outline-accent";
+
+/** Experiment config. On submit the orchestrator spawns N sandboxes and we jump to the live view. */
+export function ExperimentForm() {
+  const router = useRouter();
+  const agents = useApi("agents", api.listAgents);
+
+  const [repo, setRepo] = useState("github.com/example/backend");
+  const [task, setTask] = useState("Fix the failing authentication regression test in the JWT middleware.");
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const [runs, setRuns] = useState<number>(DEFAULT_RUN_COUNT);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const selectedAgent = agentId ?? agents.data?.[0]?.id ?? null;
+  const taskTooShort = task.trim().length < MIN_TASK_LENGTH;
+  const canSubmit = !submitting && repo.trim() !== "" && !taskTooShort && selectedAgent !== null;
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!canSubmit || !selectedAgent) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const created = await api.createExperiment({ repo: repo.trim(), task: task.trim(), agentId: selectedAgent, runs });
+      router.push(`/experiments/${created.id}`);
+    } catch (err) {
+      setSubmitError(errorMessage(err));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="NEW EXPERIMENT"
+        title={["RUN AN", "EXPERIMENT"]}
+        lede="Give the agent one task. We run it N times in isolated Vultr sandboxes and measure how often it agrees with itself."
+        size="hero"
+      />
+      <DottedRule />
+
+      <form className="max-w-[720px]" onSubmit={onSubmit} noValidate>
+        <div className="mb-[18px]">
+          <label htmlFor="repo" className={fieldLabel}>
+            Target repository
+          </label>
+          <input
+            id="repo"
+            className={fieldInput}
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+            spellCheck={false}
+            required
+          />
+        </div>
+
+        <div className="mb-[18px]">
+          <label htmlFor="task" className={fieldLabel}>
+            Task given to the agent
+          </label>
+          <textarea
+            id="task"
+            className={`${fieldInput} min-h-[72px] resize-y leading-relaxed`}
+            value={task}
+            onChange={(e) => setTask(e.target.value)}
+            spellCheck={false}
+            required
+            aria-invalid={taskTooShort}
+          />
+          {taskTooShort && (
+            <p className="mt-1 text-[11px] text-fail-line">Describe the task in at least {MIN_TASK_LENGTH} characters.</p>
+          )}
+        </div>
+
+        <fieldset className="mb-[18px]">
+          <legend className={fieldLabel}>Agent under test · Vultr Serverless Inference</legend>
+          {agents.error ? (
+            <p className="text-fail-line">
+              Could not load agents: {errorMessage(agents.error)}{" "}
+              <button type="button" className="underline" onClick={agents.reload}>
+                retry
+              </button>
+            </p>
+          ) : !agents.data ? (
+            <p className="text-muted">Loading models…</p>
+          ) : (
+            <div role="radiogroup" className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
+              {agents.data.map((a) => {
+                const on = a.id === selectedAgent;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => setAgentId(a.id)}
+                    className={`flex items-start gap-2.5 border-2 border-line p-3 text-left ${
+                      on ? "bg-paper outline-3 -outline-offset-2 outline-ink" : "bg-card"
+                    }`}
+                  >
+                    <span className="mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border-2 border-ink">
+                      {on && <span className="size-[7px] rounded-full bg-accent" />}
+                    </span>
+                    <span>
+                      <b className="font-display tracking-[.03em]">{a.name}</b>
+                      <small className="mt-[3px] block text-[11px] leading-normal text-muted">{a.description}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </fieldset>
+
+        <fieldset className="mb-[18px]">
+          <legend className={fieldLabel}>Number of isolated runs</legend>
+          <div role="radiogroup" className="flex flex-wrap gap-2">
+            {RUN_COUNT_OPTIONS.map((n) => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={runs === n}
+                onClick={() => setRuns(n)}
+                className={`border-2 px-[15px] py-[9px] font-display font-extrabold ${
+                  runs === n ? "border-ink bg-ink text-paper" : "border-line bg-card"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <div className="mt-1 mb-5 flex items-start gap-2.5 border-2 border-pass-line bg-pass-bg px-3.5 py-3">
+          <span className="mt-px">
+            <LockIcon />
+          </span>
+          <div>
+            <b className="font-display tracking-[.03em]">Isolated, disposable sandboxes</b>
+            <p className="mt-1 text-[11.5px] leading-[1.55] text-muted">
+              Each run gets a fresh container on a Vultr VM from the same image: no API keys inside, no network
+              egress, hard CPU / memory / time caps. Sandboxes are destroyed after results are collected. No run
+              can see another.
+            </p>
+          </div>
+        </div>
+
+        <button type="submit" className="btn-primary" disabled={!canSubmit}>
+          {submitting ? "SPAWNING SANDBOXES…" : `LAUNCH ${runs} PARALLEL RUNS`} <span aria-hidden>→</span>
+        </button>
+        {submitError && (
+          <p role="alert" className="mt-3 border-2 border-fail-line bg-fail-bg p-3 text-fail-line">
+            {submitError}
+          </p>
+        )}
+      </form>
+    </>
+  );
+}
