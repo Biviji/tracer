@@ -11,13 +11,13 @@ const styles: Record<RunStatus, string> = {
   queued: "text-muted border-line",
 };
 
-/** Status tag. `error` reads as KILLED: the sandbox stopped the run (timeout / OOM). */
-export function StatusTag({ status }: { status: RunStatus }) {
+/** Status tag. `error` reads as KILLED (sandbox cap) or ERROR (outside failure); see statusLabel. */
+export function StatusTag({ status, exitReason }: { status: RunStatus; exitReason?: string | null }) {
   return (
     <span
       className={`inline-block border-[1.5px] px-[7px] py-0.5 font-display text-[10px] font-extrabold tracking-[.1em] ${styles[status]}`}
     >
-      {statusLabel(status)}
+      {statusLabel(status, exitReason)}
     </span>
   );
 }

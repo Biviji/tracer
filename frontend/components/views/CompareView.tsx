@@ -62,7 +62,7 @@ export function CompareView() {
 
   const runOptions = runs.map((r) => (
     <option key={r.index} value={r.index}>
-      RUN {pad2(r.index)} ({statusLabel(r.status)})
+      RUN {pad2(r.index)} ({statusLabel(r.status, r.exitReason)})
     </option>
   ));
 
@@ -127,7 +127,7 @@ function RunFacts({ expId, run, diverge }: { expId: string; run: Run; diverge: n
   return (
     <div className="min-w-0">
       <h3 className="mb-3 flex items-center gap-2 border-b-2 border-line pb-2 text-base uppercase">
-        {expId} · RUN {pad2(run.index)} <StatusTag status={run.status} />
+        {expId} · RUN {pad2(run.index)} <StatusTag status={run.status} exitReason={run.exitReason} />
       </h3>
       {rows.map(([k, v]) => (
         <div key={k} className="flex justify-between gap-3 border-b-[1.5px] border-dotted border-line py-[9px] tracking-[.03em]">

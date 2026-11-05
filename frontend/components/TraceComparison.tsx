@@ -69,7 +69,7 @@ export function DiffBox({ run, title, note }: { run: Run; title: string; note?: 
   return (
     <div className="min-w-0 border-[1.5px] border-line">
       <div className="flex items-center justify-between gap-2 border-b-[1.5px] border-line px-2.5 py-[7px] font-display font-extrabold tracking-[.04em]">
-        {title} <StatusTag status={run.status} />
+        {title} <StatusTag status={run.status} exitReason={run.exitReason} />
       </div>
       {run.diff.length === 0 && <div className="px-2.5 py-2 text-[11.5px] text-muted">No file changes.</div>}
       {run.diff.map((d) => (

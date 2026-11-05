@@ -79,7 +79,10 @@ function TaskBlock({ task }: { task: string }) {
 function outputsSummary(exp: Experiment): string {
   // e.g. "3 RUNS · 2 PASS · 1 KILLED · 2 DIFFERENT ANSWERS"
   const counts = new Map<string, number>();
-  for (const r of exp.runs) counts.set(statusLabel(r.status), (counts.get(statusLabel(r.status)) ?? 0) + 1);
+  for (const r of exp.runs) {
+    const label = statusLabel(r.status, r.exitReason);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
   const parts = [`${exp.runs.length} RUNS`, ...[...counts].map(([label, n]) => `${n} ${label}`)];
 
   const { distinct } = answerGroups(exp.runs);

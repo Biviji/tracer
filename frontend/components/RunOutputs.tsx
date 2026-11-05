@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type KeyboardEvent } from "react";
-import { formatDuration, pad2 } from "@/lib/format";
+import { formatDuration, killedBySandbox, pad2 } from "@/lib/format";
 import { answerGroups } from "@/lib/trace";
 import type { Run } from "@/lib/types";
 import { DiffBox } from "./TraceComparison";
@@ -89,11 +89,22 @@ export function RunOutputs({ runs }: { runs: Run[] }) {
   );
 }
 
+function describeError(reason: string | null): string {
+  if (!reason) return "unknown error";
+  if (reason.startsWith("model_error")) return `the AI provider returned an error ${reason.slice(11).trim()}`.trim();
+  if (reason === "clone_failed") return "the repository could not be cloned";
+  if (reason === "bad_repo_url") return "the repository URL is not a public https git URL";
+  if (reason === "orchestrator_restarted") return "the orchestrator restarted mid-run";
+  return reason;
+}
+
 function AnswerText({ run }: { run: Run }) {
   if (run.answer) return <Markdown text={run.answer} />;
   const why =
     run.status === "error"
-      ? `Killed by the sandbox before answering (${run.exitReason ?? "error"}).`
+      ? killedBySandbox(run.exitReason)
+        ? `Killed by the sandbox before answering (${run.exitReason ?? "error"}).`
+        : `Failed before answering: ${describeError(run.exitReason)}.`
       : run.status === "cancelled"
         ? "Stopped before answering."
         : "No answer yet.";
@@ -107,7 +118,7 @@ function AnswerCard({ run, letter, onOpen }: { run: Run; letter?: string; onOpen
         <span className="font-display font-extrabold tracking-[.04em]">RUN {pad2(run.index)}</span>
         <span className="flex items-center gap-2">
           {letter && <AnswerLetter letter={letter} />}
-          <StatusTag status={run.status} />
+          <StatusTag status={run.status} exitReason={run.exitReason} />
         </span>
       </header>
       {/* Real answers are long: keep cards a comparable height; DETAILS shows the full answer. */}
@@ -135,7 +146,7 @@ function RunDetail({ run, letter }: { run: Run; letter?: string }) {
           <span>FINAL ANSWER</span>
           <span className="flex items-center gap-2">
             {letter && <AnswerLetter letter={letter} />}
-            <StatusTag status={run.status} />
+            <StatusTag status={run.status} exitReason={run.exitReason} />
           </span>
         </header>
         <div className="px-3.5 py-3">

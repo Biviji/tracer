@@ -41,9 +41,19 @@ export const reliabilityColor: Record<ReliabilityBand, string> = {
   lo: "text-fail-line",
 };
 
-/** Display label for a run status. `error` means the sandbox killed the run. */
-export function statusLabel(status: RunStatus): string {
-  return status === "error" ? "KILLED" : status.toUpperCase();
+/** True when the sandbox itself stopped the run (time or memory cap), as opposed to an outside failure. */
+export function killedBySandbox(exitReason: string | null | undefined): boolean {
+  return !exitReason || /^(timeout|oom)\b/.test(exitReason);
+}
+
+/**
+ * Display label for a run status. `error` reads as KILLED when the sandbox stopped
+ * the run (timeout / OOM), and as ERROR when something outside the agent failed
+ * (AI provider, clone).
+ */
+export function statusLabel(status: RunStatus, exitReason?: string | null): string {
+  if (status !== "error") return status.toUpperCase();
+  return killedBySandbox(exitReason) ? "KILLED" : "ERROR";
 }
 
 export function isTerminal(status: RunStatus): boolean {
