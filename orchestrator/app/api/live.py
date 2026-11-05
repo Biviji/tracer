@@ -63,5 +63,7 @@ async def live(experiment_id: str, request: Request, deps: Deps) -> StreamingRes
     return StreamingResponse(
         stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        # no-transform: stops proxies (incl. the Next /api rewrite) from gzipping the
+        # stream, which buffers events until it closes. X-Accel-Buffering: same for nginx.
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
