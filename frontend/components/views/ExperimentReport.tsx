@@ -1,17 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { formatDateTime, formatDuration, pad2, statusLabel } from "@/lib/format";
-import { answerGroups, defaultPair } from "@/lib/trace";
+import { formatDateTime, formatDuration, statusLabel } from "@/lib/format";
+import { answerGroups } from "@/lib/trace";
 import type { Experiment } from "@/lib/types";
-import { ContainmentStrip } from "../ContainmentStrip";
-import { Insights } from "../Insights";
-import { RunChips } from "../RunChips";
 import { RunOutputs } from "../RunOutputs";
-import { ScoreStrip } from "../ScoreStrip";
 import { StatusBadge } from "../StatusBadge";
-import { TraceComparison } from "../TraceComparison";
 import { DottedRule, PageHeader } from "../ui/PageHeader";
 import { Panel } from "../ui/Panel";
 
@@ -23,11 +17,6 @@ interface ExperimentReportProps {
 
 /** Finished (or stopped) experiment. Parent must key this by experiment id. */
 export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProps) {
-  const [pair, setPair] = useState(() => defaultPair(exp.runs));
-  const runA = exp.runs.find((r) => r.index === pair[0])!;
-  const runB = exp.runs.find((r) => r.index === pair[1])!;
-  const compareHref = `/compare?exp=${exp.id}&a=${pair[0]}&b=${pair[1]}`;
-
   return (
     <>
       {hero ? (
@@ -57,54 +46,10 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
       <Facts exp={exp} />
       <TaskBlock task={exp.task} />
 
-      {exp.scores ? (
-        <ScoreStrip scores={exp.scores} runs={exp.runs} />
-      ) : (
-        <div className="mt-[18px] mb-3.5 border-2 border-line bg-card p-4 tracking-[.04em] uppercase">
-          Experiment {exp.status}. No reliability score — not every run finished.
-        </div>
-      )}
-
-      <RunChips runs={exp.runs} pair={pair} onSelect={(i) => setPair([pair[0], i])} />
-
-      <div className="grid grid-cols-1 gap-3.5 desk:grid-cols-[1.35fr_1fr]">
-        <Panel
-          title="TRACE COMPARISON"
-          sub={
-            <span className="flex flex-wrap justify-between gap-2">
-              <span>
-                RUN {pad2(runA.index)} ({statusLabel(runA.status)}) VS RUN {pad2(runB.index)} (
-                {statusLabel(runB.status)})
-              </span>
-              <Link href={compareHref} className="underline-offset-2 hover:text-accent hover:underline">
-                OPEN IN COMPARE →
-              </Link>
-            </span>
-          }
-        >
-          <TraceComparison a={runA} b={runB} />
-        </Panel>
-        {exp.scores && (
-          <Panel title="INSIGHTS" sub="AUTOMATED ANALYSIS">
-            <Insights
-              scores={exp.scores}
-              insights={exp.insights}
-              runCount={exp.runs.length}
-              agentName={exp.agentName}
-            />
-          </Panel>
-        )}
-      </div>
-
-      <Panel
-        className="mt-3.5"
-        title="RUN OUTPUTS"
-        sub={`WHAT EACH RUN ANSWERED · ${outputsSummary(exp)}`}
-      >
+      {/* The report is the prompt and what every parallel run produced — nothing else. */}
+      <Panel className="mt-3.5" title="OUTPUTS" sub={outputsSummary(exp)}>
         <RunOutputs runs={exp.runs} />
       </Panel>
-
-      <ContainmentStrip limits={exp.limits} killed={exp.runs.filter((r) => r.status === "error")} />
 
       <Link
         href="/new"
@@ -132,11 +77,15 @@ function TaskBlock({ task }: { task: string }) {
 }
 
 function outputsSummary(exp: Experiment): string {
+  // e.g. "3 RUNS · 2 PASS · 1 KILLED · 2 DIFFERENT ANSWERS"
+  const counts = new Map<string, number>();
+  for (const r of exp.runs) counts.set(statusLabel(r.status), (counts.get(statusLabel(r.status)) ?? 0) + 1);
+  const parts = [`${exp.runs.length} RUNS`, ...[...counts].map(([label, n]) => `${n} ${label}`)];
+
   const { distinct } = answerGroups(exp.runs);
   const answered = exp.runs.filter((r) => r.answer).length;
-  if (answered === 0) return "NO ANSWERS";
-  if (distinct === 1) return answered > 1 ? `ALL ${answered} ANSWERS IDENTICAL` : "1 ANSWER";
-  return `${distinct} DIFFERENT ANSWERS ACROSS ${answered} RUNS`;
+  if (answered > 1) parts.push(distinct === 1 ? "ALL ANSWERS IDENTICAL" : `${distinct} DIFFERENT ANSWERS`);
+  return parts.join(" · ");
 }
 
 function Facts({ exp }: { exp: Experiment }) {
