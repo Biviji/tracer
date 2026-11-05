@@ -59,8 +59,13 @@ function emit(id: string, event: LiveEvent) {
 }
 
 function deriveTitle(task: string): string {
-  const words = task.replace(/[.!?]+$/, "").split(/\s+/).slice(0, 5).join(" ");
-  return words.length > 40 ? `${words.slice(0, 39)}…` : words;
+  const words = task.replace(/[.!?]+$/, "").split(/\s+/);
+  let title = "";
+  for (const w of words) {
+    if ((title + " " + w).trim().length > 28) break;
+    title = (title + " " + w).trim();
+  }
+  return title || words[0].slice(0, 28);
 }
 
 /** mulberry32 seeded by a string hash — tiny deterministic PRNG. */

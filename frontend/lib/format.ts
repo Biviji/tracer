@@ -41,6 +41,11 @@ export const reliabilityColor: Record<ReliabilityBand, string> = {
   lo: "text-fail-line",
 };
 
+/** Display label for a run status. `error` means the sandbox killed the run. */
+export function statusLabel(status: RunStatus): string {
+  return status === "error" ? "KILLED" : status.toUpperCase();
+}
+
 export function isTerminal(status: RunStatus): boolean {
   return status === "pass" || status === "fail" || status === "error" || status === "cancelled";
 }

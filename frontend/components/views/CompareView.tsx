@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { formatDuration, pad2 } from "@/lib/format";
+import { formatDuration, pad2, statusLabel } from "@/lib/format";
 import { useApi } from "@/lib/hooks/useApi";
 import { defaultPair, firstStepDifference } from "@/lib/trace";
 import type { Experiment, Run } from "@/lib/types";
@@ -62,7 +62,7 @@ export function CompareView() {
 
   const runOptions = runs.map((r) => (
     <option key={r.index} value={r.index}>
-      RUN {pad2(r.index)} ({r.status.toUpperCase()})
+      RUN {pad2(r.index)} ({statusLabel(r.status)})
     </option>
   ));
 

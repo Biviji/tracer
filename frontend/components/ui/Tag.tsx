@@ -1,3 +1,4 @@
+import { statusLabel } from "@/lib/format";
 import type { RunStatus } from "@/lib/types";
 
 const styles: Record<RunStatus, string> = {
@@ -10,15 +11,13 @@ const styles: Record<RunStatus, string> = {
   queued: "text-muted border-line",
 };
 
-const labels: Partial<Record<RunStatus, string>> = { error: "KILLED" };
-
 /** Status tag. `error` reads as KILLED: the sandbox stopped the run (timeout / OOM). */
 export function StatusTag({ status }: { status: RunStatus }) {
   return (
     <span
       className={`inline-block border-[1.5px] px-[7px] py-0.5 font-display text-[10px] font-extrabold tracking-[.1em] ${styles[status]}`}
     >
-      {labels[status] ?? status.toUpperCase()}
+      {statusLabel(status)}
     </span>
   );
 }

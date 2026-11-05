@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { formatDateTime, formatDuration, pad2 } from "@/lib/format";
+import { formatDateTime, formatDuration, pad2, statusLabel } from "@/lib/format";
 import { defaultPair } from "@/lib/trace";
 import type { Experiment } from "@/lib/types";
 import { ContainmentStrip } from "../ContainmentStrip";
@@ -69,8 +69,8 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
           sub={
             <span className="flex flex-wrap justify-between gap-2">
               <span>
-                RUN {pad2(runA.index)} ({runA.status.toUpperCase()}) VS RUN {pad2(runB.index)} (
-                {runB.status.toUpperCase()})
+                RUN {pad2(runA.index)} ({statusLabel(runA.status)}) VS RUN {pad2(runB.index)} (
+                {statusLabel(runB.status)})
               </span>
               <Link href={compareHref} className="underline-offset-2 hover:text-accent hover:underline">
                 OPEN IN COMPARE →

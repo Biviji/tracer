@@ -13,7 +13,7 @@ interface RunChipsProps {
 /** One chip per isolated run. Click a chip to compare it against the reference run. */
 export function RunChips({ runs, pair: [a, b], onSelect }: RunChipsProps) {
   return (
-    <div className="mb-4 grid grid-cols-1 gap-2.5 min-[461px]:grid-cols-2 desk:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+    <div className="mb-4 grid grid-cols-1 gap-2.5 min-[461px]:grid-cols-2 desk:grid-cols-[repeat(auto-fit,minmax(140px,1fr))]">
       {runs.map((r) => {
         const slot = r.index === a ? "A" : r.index === b ? "B" : null;
         return (
