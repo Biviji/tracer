@@ -5,6 +5,7 @@ LLM_BASE_URL / LLM_API_KEY / LLM_MODELS.
 
 import asyncio
 import logging
+import random
 from typing import Any
 from urllib.parse import urlparse
 
@@ -14,16 +15,29 @@ from app.llm.base import LLMError, Message
 
 log = logging.getLogger(__name__)
 
-#: Free tiers rate-limit per minute, so allow enough attempts to ride out a window.
+#: Retries for real failures (5xx, timeouts, malformed tool calls).
 MAX_ATTEMPTS = 6
+#: Rate limits (429) aren't failures, just "wait": keep waiting this long in total.
+#: The run's own time cap (SANDBOX_TIMEOUT_S) still ends a run that waits too long.
+MAX_RATE_LIMIT_WAIT_S = 1800.0
 MAX_WAIT_S = 30.0
 RETRYABLE_STATUSES = {408, 409, 429, 500, 502, 503, 504}
+#: Provider error codes on HTTP 400 that mean "the model produced a bad tool call;
+#: sampling again usually works" (e.g. Groq's tool_use_failed).
+RETRYABLE_400_CODES = {"tool_use_failed"}
 
 
 def _retry_after(res: httpx.Response) -> float | None:
     try:
         return max(0.0, float(res.headers["retry-after"]))
     except (KeyError, ValueError):
+        return None
+
+
+def _error_code(res: httpx.Response) -> str | None:
+    try:
+        return res.json()["error"].get("code")
+    except (ValueError, KeyError, TypeError, AttributeError):
         return None
 
 
@@ -47,19 +61,28 @@ class OpenAICompatibleClient:
         if temperature is not None:
             body["temperature"] = temperature
 
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        failures = 0
+        rate_limited_s = 0.0
+        while True:
             try:
                 data = await self._post("chat/completions", body)
                 return data["choices"][0]["message"]
             except LLMError as err:
-                if not err.retryable or attempt == MAX_ATTEMPTS:
+                if err.status == 429 and rate_limited_s < MAX_RATE_LIMIT_WAIT_S:
+                    # Jitter so parallel runs don't all retry in the same instant.
+                    delay = min(err.retry_after_s or 5.0, MAX_WAIT_S) + random.uniform(0.2, 2.0)
+                    rate_limited_s += delay
+                    log.info("rate limited on %s, waiting %.1fs", model, delay)
+                    await asyncio.sleep(delay)
+                    continue
+                failures += 1
+                if not err.retryable or failures >= MAX_ATTEMPTS:
                     raise
-                delay = min(err.retry_after_s or 2 ** (attempt - 1), MAX_WAIT_S)
-                log.warning("LLM call failed (%s), retry %d/%d in %.1fs", err, attempt, MAX_ATTEMPTS - 1, delay)
+                delay = min(err.retry_after_s or 2 ** (failures - 1), MAX_WAIT_S)
+                log.warning("LLM call failed (%s), retry %d/%d in %.1fs", err, failures, MAX_ATTEMPTS - 1, delay)
                 await asyncio.sleep(delay)
             except (KeyError, IndexError, TypeError) as err:
                 raise LLMError(f"Unexpected response shape from provider: {err!r}") from err
-        raise AssertionError("unreachable")
 
     async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -70,9 +93,9 @@ class OpenAICompatibleClient:
             raise LLMError(f"Model provider unreachable: {err}", retryable=True) from err
         if res.status_code >= 400:
             raise LLMError(
-                f"Model provider returned {res.status_code}: {res.text[:300]}",
+                f"Model provider returned {res.status_code}: {res.text[:500]}",
                 status=res.status_code,
-                retryable=res.status_code in RETRYABLE_STATUSES,
+                retryable=res.status_code in RETRYABLE_STATUSES or _error_code(res) in RETRYABLE_400_CODES,
                 retry_after_s=_retry_after(res),
             )
         return res.json()

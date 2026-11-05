@@ -61,6 +61,32 @@ def test_rate_limits_are_retried(monkeypatch):
     assert reply["content"] == "ok"
 
 
+def test_rate_limits_wait_instead_of_failing(monkeypatch):
+    waited = []
+
+    async def fake_sleep(s):
+        waited.append(s)
+
+    monkeypatch.setattr("app.llm.openai_compatible.asyncio.sleep", fake_sleep)
+    limited = httpx.Response(429, headers={"retry-after": "12"})
+    responses = iter([limited] * 10 + [httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})])
+
+    reply = asyncio.run(client_with(lambda r: next(responses)).chat("m", []))
+    assert reply["content"] == "ok"
+    assert len(waited) == 10 and all(12 <= w <= 14 for w in waited)  # Retry-After + jitter
+
+
+def test_malformed_tool_call_400_is_retried(monkeypatch):
+    async def no_sleep(_):
+        pass
+
+    monkeypatch.setattr("app.llm.openai_compatible.asyncio.sleep", no_sleep)
+    bad = httpx.Response(400, json={"error": {"code": "tool_use_failed", "message": "Failed to call a function"}})
+    responses = iter([bad, httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})])
+
+    assert asyncio.run(client_with(lambda r: next(responses)).chat("m", []))["content"] == "ok"
+
+
 def test_agents_come_from_configured_models():
     s = Settings(
         _env_file=None,

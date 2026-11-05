@@ -266,6 +266,7 @@ class DockerDriver:
                     self._llm, spec.model, spec.task, ws, report, max_steps=self._s.agent_max_steps
                 )
             except LLMError as err:
+                log.warning("run %s#%d: model error: %s", spec.experiment_id, spec.run_index, err)
                 report.log(f"✗ model error: {str(err)[:160]}", "error")
                 return RunResult.killed(f"model_error ({err.status or 'network'})")
 
