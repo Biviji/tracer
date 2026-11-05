@@ -42,6 +42,15 @@ flow works with no API key and no Docker-in-Docker. Two settings switch each par
 | `LLM_PROVIDER`   | `fake`          | `openai_compatible` + `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODELS` — Vultr Serverless Inference, OpenAI, OpenRouter, Groq, Ollama… |
 | `SANDBOX_DRIVER` | `sim`           | `docker`: one locked-down container per run (see below)           |
 
+### Vultr Serverless Inference (hackathon setup)
+
+1. Vultr console → **Serverless Inference** → create a subscription → copy its **API Key**.
+2. In `.env`: `LLM_PROVIDER=openai_compatible`, `LLM_BASE_URL=https://api.vultrinference.com/v1`,
+   `LLM_API_KEY=<that key>`, `LLM_MODELS=glm-5.3,deepseek-v4.1-flash-1017,qwen3.8-27b,minimax-m3.1-flash`.
+3. `cd orchestrator && python -m app.llm.check` — then `docker compose up -d --force-recreate orchestrator`.
+
+Only models that support tool calls can drive the agent; `.env.example` lists the ones verified on Vultr.
+
 ### How a real run works (`SANDBOX_DRIVER=docker`)
 
 ```
