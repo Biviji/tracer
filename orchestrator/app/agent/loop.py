@@ -25,8 +25,14 @@ The repository is checked out at /workspace inside an isolated sandbox:
 - you can inspect and change files and run commands with the tools provided;
 - work step by step: look around before you change anything.
 
+You have a budget of {max_steps} tool calls in total. Be efficient: open the files
+that matter for the task rather than every file, and finish well within the budget.
+
 When you are done, reply WITHOUT calling a tool. That reply is your final answer:
 state clearly what you found and what (if anything) you changed and why."""
+
+#: When this many tool calls remain, every tool result carries a reminder to wrap up.
+WRAP_UP_AT = 5
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -187,7 +193,7 @@ async def run_agent(
     context_budget_chars: int = 40_000,
 ) -> AgentResult:
     messages: list[Message] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": SYSTEM_PROMPT.format(max_steps=max_steps)},
         {"role": "user", "content": task},
     ]
     calls_made = 0
@@ -216,7 +222,14 @@ async def run_agent(
             calls_made += 1
             first_line = output.strip().splitlines()[0] if output.strip() else "(no output)"
             report.log(f"  {first_line[:120]}", "error" if output.startswith("ERROR") else "info")
-            messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": _clip(output)})
+            content = _clip(output)
+            left = max_steps - calls_made
+            if left <= WRAP_UP_AT:
+                content += (
+                    f"\n\n[budget: {left} tool call{'s' if left != 1 else ''} left. "
+                    "Start wrapping up and give your final answer soon.]"
+                )
+            messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": content})
 
     # Out of steps: ask for a final answer with tools disabled.
     messages.append(

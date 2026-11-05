@@ -92,6 +92,19 @@ def test_step_limit_forces_a_final_answer_without_tools():
     assert llm.calls[-1]["tools"] is None
 
 
+def test_agent_is_told_its_budget_and_warned_near_the_end():
+    looping = {"role": "assistant", "content": None, "tool_calls": [tool_call("list_files", path=".")]}
+    llm = ScriptedLLM([looping] * 6 + [{"role": "assistant", "content": "done"}])
+
+    asyncio.run(run_agent(llm, "m", "task", FakeWorkspace(), Reporter(), max_steps=8))
+
+    assert "budget of 8 tool calls" in llm.calls[0]["messages"][0]["content"]
+    tool_results = [m["content"] for m in llm.calls[-1]["messages"] if m["role"] == "tool"]
+    assert "[budget" not in tool_results[1]  # 6 left: no reminder yet
+    assert "[budget: 5 tool calls left" in tool_results[2]
+    assert "[budget: 2 tool calls left" in tool_results[5]
+
+
 def test_bad_tool_arguments_are_reported_back_not_crashing():
     bad = {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{not json"}}
     llm = ScriptedLLM([{"role": "assistant", "tool_calls": [bad]}, {"role": "assistant", "content": "done"}])
