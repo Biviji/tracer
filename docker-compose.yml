@@ -24,10 +24,24 @@ services:
       DB_URL: sqlite:////data/trace.db
     volumes:
       - trace-data:/data
-      # Needed once SANDBOX_DRIVER=docker lands (spawns sandbox containers):
-      # - /var/run/docker.sock:/var/run/docker.sock
+      # Lets the orchestrator start/destroy sandbox containers (SANDBOX_DRIVER=docker).
+      # Only the orchestrator gets this; sandboxes get no socket, no network, no secrets.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Group that owns docker.sock: 0 on Docker Desktop; on a Linux VM use
+    # DOCKER_GID=$(stat -c %g /var/run/docker.sock) in .env
+    group_add:
+      - "${DOCKER_GID:-0}"
+    depends_on:
+      - sandbox-image
     expose: ["8000"]
     restart: unless-stopped
+
+  # Builds the sandbox image the orchestrator starts per run, then exits.
+  sandbox-image:
+    build: ./runner
+    image: trace-sandbox:latest
+    entrypoint: ["true"]
+    restart: "no"
 
 volumes:
   trace-data:

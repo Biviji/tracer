@@ -22,8 +22,8 @@ Built for **Vultr Track 01 · Blast Radius Zero**: a web agent that does real wo
 | Path            | What                                                  | Status        |
 | --------------- | ----------------------------------------------------- | ------------- |
 | `frontend/`     | Next.js + Tailwind UI (config, live grid, report, compare) | ✅ built      |
-| `orchestrator/` | FastAPI: spawn → stream → collect → score → persist  | ✅ built (sim sandboxes) |
-| `runner/`       | Script baked into the sandbox image                   | ⏳ next        |
+| `orchestrator/` | FastAPI: spawn → stream → collect → score → persist, agent loop | ✅ built |
+| `runner/`       | Sandbox image each run's container starts from        | ✅ built       |
 | `demo-repo/`    | Deliberately fragile target app                       | ⏳ next        |
 | `docs/design/`  | Original static HTML design (reference only)          | 📎            |
 
@@ -40,7 +40,25 @@ flow works with no API key and no Docker-in-Docker. Two settings switch each par
 | Setting          | Offline default | Real                                                              |
 | ---------------- | --------------- | ----------------------------------------------------------------- |
 | `LLM_PROVIDER`   | `fake`          | `openai_compatible` + `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODELS` — Vultr Serverless Inference, OpenAI, OpenRouter, Groq, Ollama… |
-| `SANDBOX_DRIVER` | `sim`           | `docker` (isolated containers; lands with `runner/`)              |
+| `SANDBOX_DRIVER` | `sim`           | `docker`: one locked-down container per run (see below)           |
+
+### How a real run works (`SANDBOX_DRIVER=docker`)
+
+```
+orchestrator                                   sandbox container (per run)
+────────────                                   ───────────────────────────
+git clone repo (orchestrator side)             network: none · caps: dropped · no-new-privileges
+start container, copy repo in  ─────────────▶  /workspace, user "agent", mem/CPU/pid caps, empty env
+agent loop:                                     
+  model ⇄ Groq / Vultr (API key stays here)    
+  tool call → one docker exec  ─────────────▶  list_files · read_file · write_file · run_command
+  result → back to the model   ◀─────────────  (each command time-capped)
+git diff + final answer        ◀─────────────
+destroy container (always: done, timeout, cancel, crash)
+```
+
+The AI never gets a shell of its own, a network connection or a secret: it can only ask for
+one of four actions, and every action runs inside a box that is deleted afterwards.
 
 ## Orchestrator (local dev)
 
@@ -60,7 +78,8 @@ orchestrator/app/
   models/schemas.py  API contract, mirrors frontend/lib/types.ts
   api/             routes: meta (health, agents, stats), experiments, live (SSE)
   manager.py       experiment lifecycle: parallel cap, timeout, cancel, score, persist
-  sandbox/         SandboxDriver interface + drivers (sim; docker next)
+  sandbox/         SandboxDriver interface + drivers (sim, docker_driver)
+  agent/           agent loop: model ⇄ 4 sandboxed tools until a final answer
   llm/             LLMClient interface + OpenAI-compatible and fake clients
   scoring.py       reliability / variance / divergence
   store.py         SQLAlchemy persistence (SQLite → Postgres via DB_URL)
