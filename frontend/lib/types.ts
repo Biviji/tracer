@@ -60,6 +60,8 @@ export interface Run {
   testsTotal: number | null;
   /** Why the run ended when it did not pass, e.g. "tests_failed", "timeout", "oom". */
   exitReason: string | null;
+  /** The agent's final message (what it concluded). null when killed before answering. */
+  answer: string | null;
 }
 
 /* ---------- experiments ---------- */

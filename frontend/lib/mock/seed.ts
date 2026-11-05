@@ -31,6 +31,29 @@ export const DEFAULT_LIMITS: SandboxLimits = {
   network: "none",
 };
 
+/** Same wording as the orchestrator's sim driver: one fix, explained two ways. */
+export const MOCK_PASS_ANSWERS = [
+  [
+    "Root cause: target.py read a field without checking it exists, so an empty input crashed the handler.",
+    "Fix: added a guard that returns early on missing input. One file changed, 3 lines.",
+    "Verification: full suite passes (24/24).",
+  ].join("\n\n"),
+  [
+    "The failing tests all go through target.py, which assumed the value was always present. I added a missing-value guard there and left the rest untouched.",
+    "All 24 tests pass.",
+  ].join("\n\n"),
+];
+export const MOCK_FAIL_ANSWER = [
+  "The control flow in adjacent.py looked fragile, so I rewrote it to be simpler. I tried to install patch-helper to speed this up, but the network is blocked.",
+  "2 tests still fail; they may need updating to the new flow.",
+].join("\n\n");
+
+function defaultAnswer(outcome: RunOutcome): string | null {
+  if (outcome === "pass") return MOCK_PASS_ANSWERS[0];
+  if (outcome === "fail") return MOCK_FAIL_ANSWER;
+  return null;
+}
+
 export function makeRun(
   index: number,
   outcome: RunOutcome,
@@ -38,6 +61,7 @@ export function makeRun(
   labels: string[],
   diff: FileDiff[],
   exitReason: string | null = null,
+  answer: string | null = defaultAnswer(outcome),
 ): Run {
   const testsTotal = 24;
   return {
@@ -49,6 +73,7 @@ export function makeRun(
     testsPassed: outcome === "pass" ? testsTotal : outcome === "fail" ? testsTotal - 2 : null,
     testsTotal: outcome === "error" ? null : testsTotal,
     exitReason: outcome === "pass" ? null : exitReason ?? "tests_failed",
+    answer,
   };
 }
 

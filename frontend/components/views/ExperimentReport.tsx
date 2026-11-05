@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { formatDateTime, formatDuration, pad2, statusLabel } from "@/lib/format";
-import { defaultPair } from "@/lib/trace";
+import { answerGroups, defaultPair } from "@/lib/trace";
 import type { Experiment } from "@/lib/types";
 import { ContainmentStrip } from "../ContainmentStrip";
 import { Insights } from "../Insights";
 import { RunChips } from "../RunChips";
+import { RunOutputs } from "../RunOutputs";
 import { ScoreStrip } from "../ScoreStrip";
 import { StatusBadge } from "../StatusBadge";
 import { TraceComparison } from "../TraceComparison";
@@ -50,8 +51,11 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
       </div>
       <DottedRule />
 
-      <h2 className="my-3.5 text-[clamp(26px,5vw,46px)] leading-none uppercase">{exp.title}</h2>
+      <h2 className="my-3.5 text-[clamp(26px,5vw,46px)] leading-none uppercase">
+        Experiment report<span className="text-accent"> /</span>
+      </h2>
       <Facts exp={exp} />
+      <TaskBlock task={exp.task} />
 
       {exp.scores ? (
         <ScoreStrip scores={exp.scores} runs={exp.runs} />
@@ -92,6 +96,14 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
         )}
       </div>
 
+      <Panel
+        className="mt-3.5"
+        title="RUN OUTPUTS"
+        sub={`WHAT EACH RUN ANSWERED · ${outputsSummary(exp)}`}
+      >
+        <RunOutputs runs={exp.runs} />
+      </Panel>
+
       <ContainmentStrip limits={exp.limits} killed={exp.runs.filter((r) => r.status === "error")} />
 
       <Link
@@ -105,6 +117,26 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
       </Link>
     </>
   );
+}
+
+/** The exact prompt every run received, shown in full. */
+function TaskBlock({ task }: { task: string }) {
+  return (
+    <section className="mt-4 border-2 border-line bg-card px-4 py-3">
+      <h3 className="mb-1.5 text-[11px] tracking-[.12em] text-muted">TASK · SAME PROMPT SENT TO EVERY RUN</h3>
+      <p className="max-w-[90ch] border-l-4 border-accent pl-3 text-[13.5px] leading-relaxed whitespace-pre-line">
+        {task}
+      </p>
+    </section>
+  );
+}
+
+function outputsSummary(exp: Experiment): string {
+  const { distinct } = answerGroups(exp.runs);
+  const answered = exp.runs.filter((r) => r.answer).length;
+  if (answered === 0) return "NO ANSWERS";
+  if (distinct === 1) return answered > 1 ? `ALL ${answered} ANSWERS IDENTICAL` : "1 ANSWER";
+  return `${distinct} DIFFERENT ANSWERS ACROSS ${answered} RUNS`;
 }
 
 function Facts({ exp }: { exp: Experiment }) {

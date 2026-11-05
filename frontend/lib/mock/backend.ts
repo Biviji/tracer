@@ -21,7 +21,7 @@ import type {
   RunStatus,
 } from "../types";
 import { computeInsights, computeScores } from "./scoring";
-import { DEFAULT_LIMITS, SEED_AGENTS, seedExperiments } from "./seed";
+import { DEFAULT_LIMITS, MOCK_FAIL_ANSWER, MOCK_PASS_ANSWERS, SEED_AGENTS, seedExperiments } from "./seed";
 
 const TICK_MS = 520;
 const LATENCY_MS = 120;
@@ -83,6 +83,7 @@ function seededRandom(seedText: string): () => number {
 
 interface Plan {
   outcome: RunOutcome;
+  answer: string | null;
   labels: string[];
   diff: FileDiff[];
   durationS: number;
@@ -103,6 +104,7 @@ function planRuns(task: string, n: number): Plan[] {
         outcome: "error",
         labels: [...head, "Edit loader.py — retry until success"],
         diff: [{ file: "loader.py", lines: [{ op: "-", text: "while True: retry()" }] }],
+        answer: null,
         durationS: DEFAULT_LIMITS.timeoutS,
         exitReason: `timeout (${DEFAULT_LIMITS.timeoutS}s cap)`,
       };
@@ -112,6 +114,7 @@ function planRuns(task: string, n: number): Plan[] {
         outcome: "fail",
         labels: [...head, "Edit adjacent module — broad rewrite", ...tail],
         diff: [{ file: "adjacent.py", lines: [{ op: "-", text: "Rewrite control flow" }] }],
+        answer: MOCK_FAIL_ANSWER,
         durationS: durationS + 20,
         exitReason: "tests_failed",
         containmentLog: "$ pip install patch-helper  ✗ network unreachable (egress disabled)",
@@ -119,6 +122,7 @@ function planRuns(task: string, n: number): Plan[] {
     }
     return {
       outcome: "pass",
+      answer: MOCK_PASS_ANSWERS[Math.floor(rnd() * MOCK_PASS_ANSWERS.length)],
       labels: [...head, "Edit target module — minimal fix", ...tail],
       diff: [{ file: "target.py", lines: [{ op: "+", text: "Add missing guard" }] }],
       durationS,
@@ -137,6 +141,7 @@ function emptyRun(index: number): Run {
     testsPassed: null,
     testsTotal: null,
     exitReason: null,
+    answer: null,
   };
 }
 
@@ -184,6 +189,7 @@ function simulate(exp: Experiment, plans: Plan[]) {
         diff: plan.diff,
         durationS: plan.durationS,
         exitReason: plan.exitReason,
+        answer: plan.answer,
         testsTotal: plan.outcome === "error" ? null : 24,
         testsPassed: plan.outcome === "pass" ? 24 : plan.outcome === "fail" ? 22 : null,
       });

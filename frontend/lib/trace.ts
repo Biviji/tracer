@@ -14,6 +14,25 @@ export function sameDiff(a: Run, b: Run): boolean {
   return JSON.stringify(a.diff) === JSON.stringify(b.diff);
 }
 
+const normalize = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * Labels runs whose final answers are identical (ignoring case and whitespace)
+ * with the same letter: A for the first distinct answer, B for the next, ...
+ * Runs with no answer are left out.
+ */
+export function answerGroups(runs: Run[]): { letterOf: Map<number, string>; distinct: number } {
+  const letters = new Map<string, string>();
+  const letterOf = new Map<number, string>();
+  for (const r of runs) {
+    if (!r.answer) continue;
+    const key = normalize(r.answer);
+    if (!letters.has(key)) letters.set(key, String.fromCharCode(65 + letters.size));
+    letterOf.set(r.index, letters.get(key)!);
+  }
+  return { letterOf, distinct: letters.size };
+}
+
 /** Default pair to show: first passing run vs first non-passing run. */
 export function defaultPair(runs: Run[]): [number, number] {
   const pass = runs.find((r) => r.status === "pass") ?? runs[0];

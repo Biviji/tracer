@@ -60,7 +60,7 @@ export function TraceComparison({ a, b }: { a: Run; b: Run }) {
   );
 }
 
-function DiffBox({ run, title, note }: { run: Run; title: string; note?: string }) {
+export function DiffBox({ run, title, note }: { run: Run; title: string; note?: string }) {
   const good = run.status === "pass";
   return (
     <div className="border-[1.5px] border-line">
