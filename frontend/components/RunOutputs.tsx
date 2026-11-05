@@ -5,6 +5,7 @@ import { formatDuration, pad2 } from "@/lib/format";
 import { answerGroups } from "@/lib/trace";
 import type { Run } from "@/lib/types";
 import { DiffBox } from "./TraceComparison";
+import { Markdown } from "./ui/Markdown";
 import { StatusTag } from "./ui/Tag";
 
 type Tab = "all" | number;
@@ -89,7 +90,7 @@ export function RunOutputs({ runs }: { runs: Run[] }) {
 }
 
 function AnswerText({ run }: { run: Run }) {
-  if (run.answer) return <p className="text-[12.5px] leading-relaxed whitespace-pre-line">{run.answer}</p>;
+  if (run.answer) return <Markdown text={run.answer} />;
   const why =
     run.status === "error"
       ? `Killed by the sandbox before answering (${run.exitReason ?? "error"}).`
@@ -109,7 +110,8 @@ function AnswerCard({ run, letter, onOpen }: { run: Run; letter?: string; onOpen
           <StatusTag status={run.status} />
         </span>
       </header>
-      <div className="flex-1 px-3 py-2.5">
+      {/* Real answers are long: keep cards a comparable height; DETAILS shows the full answer. */}
+      <div className="max-h-[440px] flex-1 overflow-y-auto px-3 py-2.5">
         <AnswerText run={run} />
       </div>
       <footer className="flex items-center justify-between gap-2 border-t-2 border-line px-3 py-1.5 text-[11px] text-muted">
