@@ -22,10 +22,50 @@ Built for **Vultr Track 01 · Blast Radius Zero**: a web agent that does real wo
 | Path            | What                                                  | Status        |
 | --------------- | ----------------------------------------------------- | ------------- |
 | `frontend/`     | Next.js + Tailwind UI (config, live grid, report, compare) | ✅ built      |
-| `orchestrator/` | FastAPI: spawn → stream → collect → score → persist  | ⏳ next        |
+| `orchestrator/` | FastAPI: spawn → stream → collect → score → persist  | ✅ built (sim sandboxes) |
 | `runner/`       | Script baked into the sandbox image                   | ⏳ next        |
 | `demo-repo/`    | Deliberately fragile target app                       | ⏳ next        |
 | `docs/design/`  | Original static HTML design (reference only)          | 📎            |
+
+## Quick start (whole stack)
+
+```bash
+cp .env.example .env          # optional: without it everything runs offline
+docker compose up --build     # http://localhost:3000
+```
+
+Out of the box the orchestrator uses a **fake AI model** and **simulated sandboxes**, so the full
+flow works with no API key and no Docker-in-Docker. Two settings switch each part to the real thing:
+
+| Setting          | Offline default | Real                                                              |
+| ---------------- | --------------- | ----------------------------------------------------------------- |
+| `LLM_PROVIDER`   | `fake`          | `openai_compatible` + `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODELS` — Vultr Serverless Inference, OpenAI, OpenRouter, Groq, Ollama… |
+| `SANDBOX_DRIVER` | `sim`           | `docker` (isolated containers; lands with `runner/`)              |
+
+## Orchestrator (local dev)
+
+```bash
+python -m venv .venv && .venv/Scripts/activate      # Windows; source .venv/bin/activate elsewhere
+pip install -r orchestrator/requirements-dev.txt
+cd orchestrator
+uvicorn app.main:app --reload --port 8000           # http://localhost:8000/docs
+pytest                                              # tests
+python -m app.llm.check "hello"                     # verify the configured AI model
+```
+
+```
+orchestrator/app/
+  main.py          app factory + lifespan (wires everything)
+  config.py        all settings (env / .env)
+  models/schemas.py  API contract, mirrors frontend/lib/types.ts
+  api/             routes: meta (health, agents, stats), experiments, live (SSE)
+  manager.py       experiment lifecycle: parallel cap, timeout, cancel, score, persist
+  sandbox/         SandboxDriver interface + drivers (sim; docker next)
+  llm/             LLMClient interface + OpenAI-compatible and fake clients
+  scoring.py       reliability / variance / divergence
+  store.py         SQLAlchemy persistence (SQLite → Postgres via DB_URL)
+  events.py        in-process pub/sub for the live stream
+```
 
 ## Quick start (frontend only, mock data)
 

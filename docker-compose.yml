@@ -1,21 +1,33 @@
 # One command to run TRACE locally / on the Vultr VM:  docker compose up --build
-# The orchestrator and db services are added in the next milestone.
+# Settings come from .env (copy .env.example). Without it, everything runs offline:
+# fake AI model + simulated sandboxes.
 services:
   frontend:
     build:
       context: ./frontend
       args:
-        # Flip to "false" once the orchestrator service below exists.
-        NEXT_PUBLIC_USE_MOCK: "true"
+        NEXT_PUBLIC_USE_MOCK: "false"
         NEXT_PUBLIC_API_URL: /api
         ORCHESTRATOR_URL: http://orchestrator:8000
     ports:
       - "3000:3000"
+    depends_on:
+      - orchestrator
     restart: unless-stopped
 
-  # orchestrator:
-  #   build: ./orchestrator
-  #   env_file: .env
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock   # spawns sandbox containers
-  #   expose: ["8000"]
+  orchestrator:
+    build: ./orchestrator
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_URL: sqlite:////data/trace.db
+    volumes:
+      - trace-data:/data
+      # Needed once SANDBOX_DRIVER=docker lands (spawns sandbox containers):
+      # - /var/run/docker.sock:/var/run/docker.sock
+    expose: ["8000"]
+    restart: unless-stopped
+
+volumes:
+  trace-data:
