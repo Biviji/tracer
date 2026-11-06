@@ -15,8 +15,22 @@ type Tab = "all" | number;
  * others; a run tab shows that run's answer, steps and edit in full.
  * Identical answers share a letter (A, B, ...) so differences stand out.
  */
-export function RunOutputs({ runs }: { runs: Run[] }) {
-  const [tab, setTab] = useState<Tab>("all");
+export type OutputsTab = Tab;
+
+export function RunOutputs({
+  runs,
+  tab: controlledTab,
+  onTabChange,
+}: {
+  runs: Run[];
+  /** Optional: let the parent open a run (e.g. from the run groups). */
+  tab?: Tab;
+  onTabChange?: (tab: Tab) => void;
+}) {
+  const [ownTab, setOwnTab] = useState<Tab>("all");
+  const tab = controlledTab ?? ownTab;
+  const setTab = (t: Tab) => (onTabChange ? onTabChange(t) : setOwnTab(t));
+  const multiModel = new Set(runs.map((r) => r.agentId)).size > 1;
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const { letterOf } = answerGroups(runs);
   const tabs: Tab[] = ["all", ...runs.map((r) => r.index)];
@@ -76,11 +90,17 @@ export function RunOutputs({ runs }: { runs: Run[] }) {
 
       <div role="tabpanel" id="out-panel" aria-labelledby={`out-tab-${tab}`}>
         {selected ? (
-          <RunDetail run={selected} letter={letterOf.get(selected.index)} />
+          <RunDetail run={selected} letter={letterOf.get(selected.index)} showModel={multiModel} />
         ) : (
           <div className="grid grid-cols-1 gap-2.5 desk:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
             {runs.map((r) => (
-              <AnswerCard key={r.index} run={r} letter={letterOf.get(r.index)} onOpen={() => setTab(r.index)} />
+              <AnswerCard
+                key={r.index}
+                run={r}
+                letter={letterOf.get(r.index)}
+                showModel={multiModel}
+                onOpen={() => setTab(r.index)}
+              />
             ))}
           </div>
         )}
@@ -111,17 +131,37 @@ function AnswerText({ run }: { run: Run }) {
   return <p className="text-[12.5px] text-muted italic">{why}</p>;
 }
 
-function AnswerCard({ run, letter, onOpen }: { run: Run; letter?: string; onOpen: () => void }) {
+function AnswerCard({
+  run,
+  letter,
+  showModel,
+  onOpen,
+}: {
+  run: Run;
+  letter?: string;
+  showModel?: boolean;
+  onOpen: () => void;
+}) {
   return (
-    <article className="flex min-w-0 flex-col border-2 border-line bg-card">
+    <article
+      className={`flex min-w-0 flex-col border-2 bg-card ${run.tampered.length ? "border-fail-line" : "border-line"}`}
+    >
       <header className="flex items-center justify-between gap-2 border-b-2 border-line px-3 py-2">
-        <span className="font-display font-extrabold tracking-[.04em]">RUN {pad2(run.index)}</span>
+        <span className="min-w-0 truncate font-display font-extrabold tracking-[.04em]">
+          RUN {pad2(run.index)}
+          {showModel && <span className="ml-1.5 font-mono text-[10.5px] font-normal text-muted">{run.agentName}</span>}
+        </span>
         <span className="flex items-center gap-2">
           {letter && <AnswerLetter letter={letter} />}
           <StatusTag status={run.status} exitReason={run.exitReason} />
         </span>
       </header>
       {/* Real answers are long: keep cards a comparable height; DETAILS shows the full answer. */}
+      {run.tampered.length > 0 && (
+        <p className="border-b-2 border-fail-line bg-fail-bg px-3 py-1.5 text-[11px] text-fail-line">
+          ⚠ Edited {run.tampered.join(", ")} — not counted as a pass
+        </p>
+      )}
       <div className="max-h-[440px] flex-1 overflow-y-auto px-3 py-2.5">
         <AnswerText run={run} />
       </div>
@@ -138,12 +178,12 @@ function AnswerCard({ run, letter, onOpen }: { run: Run; letter?: string; onOpen
   );
 }
 
-function RunDetail({ run, letter }: { run: Run; letter?: string }) {
+function RunDetail({ run, letter, showModel }: { run: Run; letter?: string; showModel?: boolean }) {
   return (
     <div className="grid grid-cols-1 gap-3.5 desk:grid-cols-[1.3fr_1fr]">
       <section className="min-w-0 border-2 border-line bg-card">
         <header className="flex items-center justify-between gap-2 border-b-2 border-line px-3 py-2 text-[11px] tracking-[.08em] text-muted">
-          <span>FINAL ANSWER</span>
+          <span>FINAL ANSWER{showModel && ` · ${run.agentName}`}</span>
           <span className="flex items-center gap-2">
             {letter && <AnswerLetter letter={letter} />}
             <StatusTag status={run.status} exitReason={run.exitReason} />
@@ -156,10 +196,39 @@ function RunDetail({ run, letter }: { run: Run; letter?: string }) {
           {formatDuration(run.durationS)}
           {run.testsTotal != null && ` · ${run.testsPassed}/${run.testsTotal} tests`}
           {run.exitReason && ` · exit: ${run.exitReason}`}
+          {run.tokensIn != null && ` · ${(run.tokensIn + (run.tokensOut ?? 0)).toLocaleString()} tokens`}
+          {run.llmCalls != null && ` · ${run.llmCalls} model calls`}
         </footer>
       </section>
 
       <div className="flex min-w-0 flex-col gap-3">
+        {run.tampered.length > 0 && (
+          <section className="border-2 border-fail-line bg-fail-bg px-3 py-2.5 text-[12px] text-fail-line">
+            <h3 className="mb-1 text-[11px] tracking-[.08em]">⚠ TAMPERED WITH THE TESTS</h3>
+            <p>
+              Changed: {run.tampered.join(", ")}. These were put back to the original before the check ran, and the run
+              can&apos;t count as a pass.
+            </p>
+          </section>
+        )}
+        {run.check && (
+          <section className="border-2 border-line bg-card">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-line px-3 py-2 text-[11px] tracking-[.08em] text-muted">
+              <span>
+                CHECK · <code className="text-ink">{run.check.command}</code>
+              </span>
+              <span className={run.check.passed ? "text-pass-line" : "text-fail-line"}>
+                {run.check.passed ? "✓ PASSED" : `✗ FAILED (exit ${run.check.exitCode ?? "?"})`}
+                {run.check.testsTotal != null && ` · ${run.check.testsPassed}/${run.check.testsTotal} tests`}
+              </span>
+            </header>
+            {run.check.output && (
+              <pre className="max-h-[220px] overflow-auto px-3 py-2 text-[10.5px] leading-snug whitespace-pre-wrap text-muted">
+                {run.check.output}
+              </pre>
+            )}
+          </section>
+        )}
         <section className="border-2 border-line bg-card px-3 py-2.5">
           <h3 className="mb-1.5 text-[11px] tracking-[.08em] text-muted">STEPS</h3>
           {run.steps.length === 0 ? (

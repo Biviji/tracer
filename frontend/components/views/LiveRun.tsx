@@ -62,7 +62,7 @@ export function LiveRun({ experiment, onSettled }: LiveRunProps) {
             <span aria-live="polite">{connection === "reconnecting" ? "RECONNECTING…" : state.message}</span>
           </div>
         }
-        lede={`${experiment.runCount} isolated sandboxes · ${experiment.agentName} · ${done}/${experiment.runCount} finished`}
+        lede={`${experiment.runCount} isolated sandboxes · ${(experiment.agents?.length ? experiment.agents.map((a) => a.name) : [experiment.agentName]).join(" vs ")} · ${done}/${experiment.runCount} finished${experiment.checkCommand ? ` · checked by ${experiment.checkCommand}` : ""}`}
       />
       <p className="mt-3 max-w-[70ch] border-l-4 border-line pl-3 text-muted">{experiment.task}</p>
 

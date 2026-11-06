@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { formatDateTime, formatDuration, statusLabel } from "@/lib/format";
 import { answerGroups } from "@/lib/trace";
 import type { Experiment } from "@/lib/types";
-import { RunOutputs } from "../RunOutputs";
+import { ModelTable, RunGroups, VerdictBanner } from "../ReliabilityPanels";
+import { RunOutputs, type OutputsTab } from "../RunOutputs";
 import { StatusBadge } from "../StatusBadge";
 import { DottedRule, PageHeader } from "../ui/PageHeader";
 import { Panel } from "../ui/Panel";
@@ -17,6 +19,11 @@ interface ExperimentReportProps {
 
 /** Finished (or stopped) experiment. Parent must key this by experiment id. */
 export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProps) {
+  const [tab, setTab] = useState<OutputsTab>("all");
+  function openRun(run: number) {
+    setTab(run);
+    document.getElementById("outputs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   return (
     <>
       {hero ? (
@@ -46,10 +53,15 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
       <Facts exp={exp} />
       <TaskBlock task={exp.task} />
 
-      {/* The report is the prompt and what every parallel run produced — nothing else. */}
-      <Panel className="mt-3.5" title="OUTPUTS" sub={outputsSummary(exp)}>
-        <RunOutputs runs={exp.runs} />
-      </Panel>
+      <VerdictBanner exp={exp} />
+      {exp.insights && <ModelTable models={exp.insights.models} />}
+      {exp.insights && <RunGroups groups={exp.insights.groups} onOpen={openRun} />}
+
+      <div id="outputs" className="scroll-mt-4">
+        <Panel className="mt-3.5" title="OUTPUTS" sub={outputsSummary(exp)}>
+          <RunOutputs runs={exp.runs} tab={tab} onTabChange={setTab} />
+        </Panel>
+      </div>
 
       <Link
         href="/new"
@@ -94,7 +106,7 @@ function outputsSummary(exp: Experiment): string {
 function Facts({ exp }: { exp: Experiment }) {
   const facts = [
     { icon: <RepoIcon />, text: exp.repo },
-    { icon: <AgentIcon />, text: exp.agentName },
+    { icon: <AgentIcon />, text: (exp.agents?.length ? exp.agents.map((a) => a.name) : [exp.agentName]).join(" · ") },
     { icon: <LayersIcon />, text: `${exp.runs.length} runs` },
     { icon: <ClockIcon />, text: `~ ${formatDuration(exp.durationS)}` },
   ];

@@ -7,7 +7,7 @@ import { WorkflowDemoButton } from "@/components/WorkflowDemo";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
-import { DEFAULT_RUN_COUNT, RUN_COUNT_OPTIONS } from "@/lib/config";
+import { DEFAULT_RUN_COUNT, MAX_MODELS, MAX_TOTAL_RUNS, RUN_COUNT_OPTIONS } from "@/lib/config";
 import { errorMessage } from "@/lib/errors";
 import { useApi } from "@/lib/hooks/useApi";
 import { LockIcon } from "../ContainmentStrip";
@@ -23,7 +23,7 @@ const fieldInput =
 const TOUR: TourStep[] = [
   {
     title: "Welcome to TRACE",
-    body: "TRACE runs the same coding task many times, each in its own locked sandbox, and shows how often the agent gets it right. Here's the form in five quick steps.",
+    body: "TRACE runs the same coding task many times, each in its own locked sandbox, and shows how often the agent gets it right. Here's the form in six quick steps.",
   },
   {
     target: "repo",
@@ -36,24 +36,30 @@ const TOUR: TourStep[] = [
     body: "Plain English, like you'd tell a teammate. Every run gets exactly this text — add rules such as “don't change the tests”.",
   },
   {
+    target: "check",
+    title: "3 · How to check the result",
+    body: "This command decides PASS, not the agent. After each run it executes in a fresh sandbox with your original tests put back, so a run that edits the tests can't fake a pass.",
+  },
+  {
     target: "model",
-    title: "3 · Choose the agent",
-    body: "The model that drives the agent, on Vultr Serverless Inference. To compare models, run the same task once per model.",
+    title: "4 · Choose the models",
+    body: "Pick one model, or up to four to compare on the same task: you'll get pass rate, time, tokens and cost per correct fix for each.",
   },
   {
     target: "runs",
-    title: "4 · How many runs",
-    body: "Each run is a separate sandbox. One run proves nothing — 5 gives a first reliability number.",
+    title: "5 · How many runs",
+    body: "Runs per model. Each is a separate sandbox. One run proves nothing — 5 gives a first reliability number.",
   },
   {
     target: "launch",
-    title: "5 · Launch",
-    body: "You'll watch every run live, then get a report: pass rate, each run's answer and the code it changed. Sandboxes are destroyed after.",
+    title: "6 · Launch",
+    body: "You'll watch every run live, then get a report: checked pass rate, what each run changed, and which runs cheated. Sandboxes are destroyed after.",
   },
 ];
 
 const DEMO_REPO = "demo";
 const DEMO_TASK = "Run the test suite, find why tests fail and fix the code. Don't change the tests.";
+const DEMO_CHECK = "pytest -q";
 
 export function ExperimentForm() {
   const router = useRouter();
@@ -62,27 +68,37 @@ export function ExperimentForm() {
   const tour = useFirstVisitTour("trace-tour-new-v1");
   const [repo, setRepo] = useState(DEMO_REPO);
   const [task, setTask] = useState(DEMO_TASK);
-  const [agentId, setAgentId] = useState<string | null>(null);
+  const [checkCommand, setCheckCommand] = useState(DEMO_CHECK);
+  const [picked, setPicked] = useState<string[] | null>(null);
   const [runs, setRuns] = useState<number>(DEFAULT_RUN_COUNT);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const isDemo = repo.trim() === DEMO_REPO && task.trim() === DEMO_TASK;
-  const selectedAgent = agentId ?? agents.data?.[0]?.id ?? null;
+  const isDemo = repo.trim() === DEMO_REPO && task.trim() === DEMO_TASK && checkCommand.trim() === DEMO_CHECK;
+  const selected = picked ?? (agents.data?.[0] ? [agents.data[0].id] : []);
+  const total = runs * selected.length;
+  const tooMany = total > MAX_TOTAL_RUNS;
   const taskTooShort = task.trim().length < MIN_TASK_LENGTH;
-  const canSubmit = !submitting && repo.trim() !== "" && !taskTooShort && selectedAgent !== null;
+  const canSubmit = !submitting && repo.trim() !== "" && !taskTooShort && selected.length > 0 && !tooMany;
+
+  function toggle(id: string) {
+    const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
+    if (next.length > MAX_MODELS) return;
+    setPicked(next);
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!canSubmit || !selectedAgent) return;
+    if (!canSubmit) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
       const created = await api.createExperiment({
         repo: repo.trim(),
         task: task.trim(),
-        agentId: selectedAgent,
+        agentIds: selected,
         runs,
+        checkCommand: checkCommand.trim() || null,
       });
       router.push(`/experiments/${created.id}`);
     } catch (err) {
@@ -96,7 +112,7 @@ export function ExperimentForm() {
       <PageHeader
         eyebrow="NEW EXPERIMENT"
         title={["RUN AN", "EXPERIMENT"]}
-        lede="Give the agent one task. We run it N times in isolated Vultr sandboxes and measure how often it agrees with itself."
+        lede="Give the agent one task. We run it N times in isolated Vultr sandboxes, check every result, and measure how often it really works."
         size="hero"
       />
       <DottedRule />
@@ -123,6 +139,7 @@ export function ExperimentForm() {
               onClick={() => {
                 setRepo(DEMO_REPO);
                 setTask(DEMO_TASK);
+                setCheckCommand(DEMO_CHECK);
               }}
             >
               Reset to the demo
@@ -173,10 +190,35 @@ export function ExperimentForm() {
           )}
         </div>
 
+        <div className="mb-[18px]" data-tour="check">
+          <label htmlFor="check" className={fieldLabel}>
+            Check command · decides pass / fail
+          </label>
+          <input
+            id="check"
+            className={`${fieldInput} font-mono`}
+            value={checkCommand}
+            onChange={(e) => setCheckCommand(e.target.value)}
+            placeholder="e.g. pytest -q   ·   npm test   ·   go test ./..."
+            spellCheck={false}
+            aria-describedby="check-hint"
+          />
+          <p id="check-hint" className="mt-1 text-[11px] text-muted">
+            Runs after each agent in a fresh sandbox with your original tests put back. A run passes only if this exits
+            0 — and a run that edited the tests never passes.{" "}
+            {!checkCommand.trim() && (
+              <span className="text-fail-line">
+                Empty: PASS will only mean &ldquo;the agent said it&apos;s done&rdquo;.
+              </span>
+            )}
+          </p>
+        </div>
+
         <fieldset className="mb-[18px]" data-tour="model">
-          <legend className={fieldLabel}>Agent under test · Vultr Serverless Inference</legend>
+          <legend className={fieldLabel}>Models to test · Vultr Serverless Inference</legend>
           <p className="-mt-1 mb-2 text-[11px] text-muted">
-            The model that drives the agent. To compare models, run the same task once per model.
+            Pick one, or up to {MAX_MODELS} to compare them on the same task: pass rate, time, tokens and cost per
+            correct fix for each.
           </p>
           {agents.error ? (
             <p className="text-fail-line">
@@ -188,22 +230,24 @@ export function ExperimentForm() {
           ) : !agents.data ? (
             <p className="text-muted">Loading models…</p>
           ) : (
-            <div role="radiogroup" className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <div role="group" className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {agents.data.map((a) => {
-                const on = a.id === selectedAgent;
+                const on = selected.includes(a.id);
+                const full = !on && selected.length >= MAX_MODELS;
                 return (
                   <button
                     key={a.id}
                     type="button"
-                    role="radio"
+                    role="checkbox"
                     aria-checked={on}
-                    onClick={() => setAgentId(a.id)}
-                    className={`flex min-w-0 items-start gap-2.5 border-2 border-line p-3 text-left ${
+                    disabled={full}
+                    onClick={() => toggle(a.id)}
+                    className={`flex min-w-0 items-start gap-2.5 border-2 border-line p-3 text-left disabled:opacity-50 ${
                       on ? "bg-paper outline-3 -outline-offset-2 outline-ink" : "bg-card"
                     }`}
                   >
-                    <span className="mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border-2 border-ink">
-                      {on && <span className="size-[7px] rounded-full bg-accent" />}
+                    <span className="mt-0.5 grid size-3.5 shrink-0 place-items-center border-2 border-ink">
+                      {on && <span className="size-[7px] bg-accent" />}
                     </span>
                     <span className="min-w-0 [overflow-wrap:anywhere]">
                       <b className="font-display tracking-[.03em]">{a.name}</b>
@@ -217,9 +261,17 @@ export function ExperimentForm() {
         </fieldset>
 
         <fieldset className="mb-[18px]" data-tour="runs">
-          <legend className={fieldLabel}>Number of isolated runs</legend>
+          <legend className={fieldLabel}>Runs per model</legend>
           <p className="-mt-1 mb-2 text-[11px] text-muted">
             One run tells you nothing about reliability. 5 is a good start; 10 gives a steadier number but takes longer.
+            {selected.length > 1 && (
+              <>
+                {" "}
+                Total: {runs} × {selected.length} models ={" "}
+                <b className={tooMany ? "text-fail-line" : "text-ink"}>{total} runs</b>
+                {tooMany && ` (max ${MAX_TOTAL_RUNS})`}.
+              </>
+            )}
           </p>
           <div role="radiogroup" className="flex flex-wrap gap-2">
             {RUN_COUNT_OPTIONS.map((n) => (
@@ -263,7 +315,10 @@ export function ExperimentForm() {
             </>
           ) : (
             <>
-              LAUNCH {runs} PARALLEL RUNS <span aria-hidden>→</span>
+              {selected.length > 1
+                ? `LAUNCH ${total} RUNS · ${selected.length} MODELS`
+                : `LAUNCH ${runs} PARALLEL RUNS`}{" "}
+              <span aria-hidden>→</span>
             </>
           )}
         </button>

@@ -28,7 +28,11 @@ export function ReportsView() {
       ) : !data ? (
         <Loading />
       ) : data.length === 0 ? (
-        <Empty title="No reports yet" body="Finished experiments are saved here." cta={{ href: "/new", label: "RUN AN EXPERIMENT →" }} />
+        <Empty
+          title="No reports yet"
+          body="Finished experiments are saved here."
+          cta={{ href: "/new", label: "RUN AN EXPERIMENT →" }}
+        />
       ) : (
         <Table head={COLUMNS}>
           {data.map((e) => {
@@ -108,17 +112,16 @@ function Reliability({ exp }: { exp: ExperimentSummary }) {
 function Details({ exp }: { exp: ExperimentSummary }) {
   const facts: [string, string][] = [
     ["REPO", exp.repo],
-    ["AGENT", exp.agentName],
+    [
+      exp.agents?.length > 1 ? "MODELS" : "MODEL",
+      (exp.agents?.length ? exp.agents.map((a) => a.name) : [exp.agentName]).join(" · "),
+    ],
     ["RUNS", String(exp.runCount)],
     ["STATUS", exp.status.toUpperCase()],
     ["STARTED", formatDateTime(exp.createdAt)],
   ];
   if (exp.scores) {
-    facts.push(
-      ["RELIABILITY", `${exp.scores.reliability}%`],
-      ["OUTPUT VARIANCE", exp.scores.variance.toFixed(2)],
-      ["FIRST DIVERGENCE", exp.scores.divergenceStep ? `STEP ${String(exp.scores.divergenceStep).padStart(2, "0")}` : "NONE"],
-    );
+    facts.push(["RELIABILITY", `${exp.scores.reliability}%`], ["OUTPUT VARIANCE", exp.scores.variance.toFixed(2)]);
   }
 
   return (

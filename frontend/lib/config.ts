@@ -13,3 +13,6 @@ export const config = {
 /** Run counts offered in the experiment form. */
 export const RUN_COUNT_OPTIONS = [3, 5, 8, 10] as const;
 export const DEFAULT_RUN_COUNT = 5;
+/** Models one experiment can compare, and total runs across them (mirrors MAX_TOTAL_RUNS). */
+export const MAX_MODELS = 4;
+export const MAX_TOTAL_RUNS = 20;

@@ -60,7 +60,27 @@ def test_groups_same_fix_ignoring_whitespace():
         ("killed", [6], 0),
     ]
     assert groups[0].label == "Fix A · passed the check" and groups[1].label == "Fix B · failed the check"
-    assert summarize(groups).startswith("2 runs made the same fix (passed) · 1 run made a different fix (failed)")
+    assert summarize(groups) == (
+        "2 runs passed with the same fix · 1 run changed code but failed the check · "
+        "1 run changed nothing · 1 run edited the tests · 1 run killed by the sandbox"
+    )
+
+
+def test_same_fix_worded_differently_is_one_group():
+    """Both replace the same buggy line; the new code differs. A third run fixes a different line."""
+
+    def fix(i, removed, added):
+        lines = [DiffLine(op="-", text=removed), DiffLine(op="+", text=added)]
+        return Run(index=i, status="pass", agent_id="m", diff=[FileDiff(file="shop/pricing.py", lines=lines)])
+
+    runs = [
+        fix(1, "if qty > 10:", "if qty >= 10:"),
+        fix(2, "if qty > 10:", "if 10 <= qty:  # bulk tier starts at 10"),
+        fix(3, "return int(total)", "return round(total, 2)"),
+    ]
+    groups = group_runs(runs)
+    assert [g.runs for g in groups] == [[1, 2], [3]]
+    assert summarize(groups) == "3 runs passed with 2 different fixes"
 
 
 def test_model_scores_with_and_without_price():

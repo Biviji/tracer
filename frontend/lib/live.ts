@@ -8,6 +8,8 @@ const EXPECTED_STEPS = 5;
 
 export interface SandboxView {
   index: number;
+  /** Model name, shown when an experiment compares several. */
+  model: string;
   status: RunStatus;
   progress: number; // 0..1
   logs: { line: string; level: "info" | "ok" | "error" }[];
@@ -26,6 +28,7 @@ export function initLive(status: ExperimentStatus, runs: Run[]): LiveState {
     message: status === "queued" ? "QUEUED" : "SPAWNING SANDBOXES",
     sandboxes: runs.map((r) => ({
       index: r.index,
+      model: r.agentName,
       status: r.status,
       progress: isTerminal(r.status) ? 1 : Math.min(1, r.steps.length / EXPECTED_STEPS),
       logs: [],

@@ -26,7 +26,7 @@ export function LatestExperiment() {
         />
         <Empty
           title="No experiments yet"
-          body="Launch your first experiment to see reliability, divergence and variance."
+          body="Launch your first experiment to see a checked pass rate, what each run changed, and which runs cheated."
           cta={{ href: "/new", label: "RUN AN EXPERIMENT →" }}
         />
       </>

@@ -14,6 +14,7 @@ const logColor = { info: "", ok: "text-pass-line", error: "text-fail-line" } as 
 
 /** Live grid: one tile per isolated sandbox, fed by SSE events. Purely presentational. */
 export function SandboxGrid({ sandboxes }: { sandboxes: SandboxView[] }) {
+  const multiModel = new Set(sandboxes.map((s) => s.model)).size > 1;
   return (
     <div className="my-[18px] grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
       {sandboxes.map((sb) => (
@@ -26,6 +27,7 @@ export function SandboxGrid({ sandboxes }: { sandboxes: SandboxView[] }) {
             RUN {pad2(sb.index)}
             <StatusTag status={sb.status} />
           </header>
+          {multiModel && <span className="-mt-1 truncate text-[10.5px] text-muted">{sb.model}</span>}
           <div className="flex-1 overflow-hidden text-[10.5px] leading-normal text-muted" aria-live="polite">
             {sb.logs.map((l, i) => (
               <span key={i} className={`block truncate ${logColor[l.level]}`} title={l.line}>

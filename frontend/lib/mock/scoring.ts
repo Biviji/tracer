@@ -52,5 +52,6 @@ export function computeInsights(allRuns: Run[], scores: Scores): Insights {
     const actions = new Set(runs.map((r) => r.steps[step - 1]?.label ?? "∅"));
     divergenceSummary = `At step ${pad2(step)} the runs took ${actions.size} different actions.`;
   }
-  return { divergenceSummary, patterns };
+  // The mock keeps the old positional view; grouping by fix and per-model scores come from the orchestrator.
+  return { divergenceSummary, patterns, summary: null, groups: [], models: [] };
 }

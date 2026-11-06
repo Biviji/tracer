@@ -50,8 +50,8 @@ function find(id: string): Experiment {
 }
 
 function summary(e: Experiment): ExperimentSummary {
-  const { id, title, task, repo, agentId, agentName, runCount, status, createdAt, scores } = e;
-  return { id, title, task, repo, agentId, agentName, runCount, status, createdAt, scores };
+  const { id, title, task, repo, agentId, agentName, agents, runCount, status, createdAt, scores } = e;
+  return { id, title, task, repo, agentId, agentName, agents, runCount, status, createdAt, scores };
 }
 
 function emit(id: string, event: LiveEvent) {
@@ -131,9 +131,16 @@ function planRuns(task: string, n: number): Plan[] {
   });
 }
 
-function emptyRun(index: number): Run {
+function emptyRun(index: number, agent: { id: string; name: string }): Run {
   return {
     index,
+    agentId: agent.id,
+    agentName: agent.name,
+    check: null,
+    tampered: [],
+    tokensIn: null,
+    tokensOut: null,
+    llmCalls: null,
     status: "queued",
     durationS: null,
     steps: [],
@@ -248,8 +255,9 @@ export const mockBackend: TraceApi & {
   },
 
   async createExperiment(req: CreateExperimentRequest) {
-    const agent = SEED_AGENTS.find((a) => a.id === req.agentId);
-    if (!agent) throw new ApiError(422, `Unknown agent ${req.agentId}`);
+    // The mock runs one model; comparing models needs the real orchestrator.
+    const agent = SEED_AGENTS.find((a) => a.id === req.agentIds[0]);
+    if (!agent) throw new ApiError(422, `Unknown agent ${req.agentIds[0]}`);
     if (!Number.isInteger(req.runs) || req.runs < 1 || req.runs > 10)
       throw new ApiError(422, "runs must be between 1 and 10");
     if (req.task.trim().length < 10) throw new ApiError(422, "task is too short");
@@ -262,13 +270,15 @@ export const mockBackend: TraceApi & {
       repo: req.repo.trim(),
       agentId: agent.id,
       agentName: agent.name,
+      agents: [{ id: agent.id, name: agent.name }],
+      checkCommand: null,
       runCount: req.runs,
       status: "queued",
       createdAt: new Date().toISOString(),
       scores: null,
       durationS: null,
       limits: DEFAULT_LIMITS,
-      runs: Array.from({ length: req.runs }, (_, i) => emptyRun(i + 1)),
+      runs: Array.from({ length: req.runs }, (_, i) => emptyRun(i + 1, agent)),
       insights: null,
     };
     experiments.unshift(exp);

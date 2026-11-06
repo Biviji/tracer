@@ -74,12 +74,25 @@ export function makeRun(
     testsTotal: outcome === "error" ? null : testsTotal,
     exitReason: outcome === "pass" ? null : exitReason ?? "tests_failed",
     answer,
+    agentId: "",
+    agentName: "",
+    check: null,
+    tampered: [],
+    tokensIn: null,
+    tokensOut: null,
+    llmCalls: null,
   };
 }
 
 function finished(
-  base: Omit<Experiment, "scores" | "insights" | "status" | "runCount">,
+  seed: Omit<Experiment, "scores" | "insights" | "status" | "runCount" | "agents" | "checkCommand">,
 ): Experiment {
+  const base = {
+    ...seed,
+    agents: [{ id: seed.agentId, name: seed.agentName }],
+    checkCommand: null,
+    runs: seed.runs.map((r) => ({ ...r, agentId: seed.agentId, agentName: seed.agentName })),
+  };
   const scores = computeScores(base.runs);
   return {
     ...base,

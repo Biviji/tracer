@@ -46,42 +46,85 @@ def compute_scores(all_runs: list[Run]) -> Scores:
     )
 
 
-def _fix_signature(run: Run) -> str:
-    """Same fix = same lines added/removed per file, ignoring whitespace and line order."""
-    sig = []
-    for f in sorted(run.diff, key=lambda d: d.file):
-        added = sorted({" ".join(line.text.split()) for line in f.lines if line.op == "+" and line.text.strip()})
-        removed = sorted({" ".join(line.text.split()) for line in f.lines if line.op == "-" and line.text.strip()})
-        if added or removed:
-            sig.append([f.file, added, removed])
-    return json.dumps(sig)
+def _norm(text: str) -> str:
+    return " ".join(text.split())
 
 
-def _group_key(run: Run) -> tuple[str, str]:
-    """(kind, key) — runs with the same key did the same thing."""
+def _touched(run: Run) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    """(files changed, original lines replaced, lines added) — whitespace-insensitive."""
+    files, removed, added = set(), set(), set()
+    for f in run.diff:
+        for line in f.lines:
+            if not line.text.strip():
+                continue
+            files.add(f.file)
+            (removed if line.op == "-" else added).add(f"{f.file}\0{_norm(line.text)}")
+    return frozenset(files), frozenset(removed), frozenset(added)
+
+
+def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    return len(a & b) / len(a | b) if a or b else 1.0
+
+
+#: Two fixes are "the same" when they change the same files and replace mostly the same
+#: original lines. The new code may be worded differently — that's still the same fix.
+SAME_FIX = 0.5
+
+
+def _same_fix(a: Run, b: Run) -> bool:
+    fa, ra, aa = _touched(a)
+    fb, rb, ab = _touched(b)
+    if fa != fb:
+        return False
+    if ra or rb:
+        return _jaccard(ra, rb) >= SAME_FIX
+    return _jaccard(aa, ab) >= SAME_FIX  # pure additions: compare what was added
+
+
+def _kind(run: Run) -> tuple[str, str]:
+    """(kind, sub-key) for runs that are grouped without comparing code."""
     if run.status == "error":
-        reason = (run.exit_reason or "error").split(" ")[0]
-        return "killed", reason
+        return "killed", (run.exit_reason or "error").split(" ")[0]
     if run.tampered:
         return "tampered", ""
     if not any(f.lines for f in run.diff):
         return "no_change", ""
     if run.status != "pass" and run.exit_reason == "step_limit":
         return "gave_up", ""
-    return "fix", _fix_signature(run)
+    return "fix", ""
 
 
 _ORDER = {"fix": 0, "no_change": 1, "tampered": 2, "gave_up": 3, "killed": 4}
 
 
+def _cluster_fixes(runs: list[Run]) -> list[list[Run]]:
+    """Single-linkage clusters of similar fixes; a passing and a failing run never share a group."""
+    clusters: list[list[Run]] = []
+    for r in runs:
+        home = next(
+            (c for c in clusters if c[0].status == r.status and any(_same_fix(r, other) for other in c)), None
+        )
+        if home is None:
+            clusters.append([r])
+        else:
+            home.append(r)
+    return clusters
+
+
 def group_runs(all_runs: list[Run]) -> list[RunGroup]:
     buckets: dict[tuple[str, str], list[Run]] = {}
     for r in _scored(all_runs):
-        buckets.setdefault(_group_key(r), []).append(r)
+        buckets.setdefault(_kind(r), []).append(r)
+
+    clusters: list[tuple[str, str, list[Run]]] = []
+    for (kind, key), runs in buckets.items():
+        if kind == "fix":
+            clusters += [(kind, key, c) for c in _cluster_fixes(runs)]
+        else:
+            clusters.append((kind, key, runs))
 
     groups: list[RunGroup] = []
-    for (kind, key), runs in buckets.items():
-        files = sorted({f.file for r in runs for f in r.diff if f.lines})
+    for kind, key, runs in clusters:
         first = runs[0]
         groups.append(
             RunGroup(
@@ -89,18 +132,17 @@ def group_runs(all_runs: list[Run]) -> list[RunGroup]:
                 label=key,  # filled in below
                 runs=[r.index for r in runs],
                 passed=sum(1 for r in runs if r.status == "pass"),
-                files=files,
+                files=sorted({f.file for r in runs for f in r.diff if f.lines}),
                 lines_added=sum(1 for f in first.diff for line in f.lines if line.op == "+"),
                 lines_removed=sum(1 for f in first.diff for line in f.lines if line.op == "-"),
             )
         )
-    groups.sort(key=lambda g: (_ORDER[g.kind], -len(g.runs), g.runs[0]))
+    groups.sort(key=lambda g: (_ORDER[g.kind], -g.passed, -len(g.runs), g.runs[0]))
 
     letters = iter(string.ascii_uppercase)
     for g in groups:
         if g.kind == "fix":
-            verdict = "passed the check" if g.passed == len(g.runs) else "failed the check" if not g.passed else f"{g.passed} passed"
-            g.label = f"Fix {next(letters, '?')} · {verdict}"
+            g.label = f"Fix {next(letters, '?')} · {'passed the check' if g.passed else 'failed the check'}"
         elif g.kind == "tampered":
             g.label = "Edited the tests or test setup"
         elif g.kind == "no_change":
@@ -117,18 +159,24 @@ def summarize(groups: list[RunGroup]) -> str | None:
         return f"{k} run{'s' if k != 1 else ''}"
 
     parts = []
+    good = [g for g in groups if g.kind == "fix" and g.passed]
+    bad = [g for g in groups if g.kind == "fix" and not g.passed]
+    if good:
+        k = sum(len(g.runs) for g in good)
+        how = "the same fix" if len(good) == 1 else f"{len(good)} different fixes"
+        parts.append(f"{n(k)} passed" + (f" with {how}" if k > 1 else ""))
+    if bad:
+        k = sum(len(g.runs) for g in bad)
+        parts.append(f"{n(k)} changed code but failed the check")
     for g in groups:
         k = len(g.runs)
-        if g.kind == "fix":
-            what = "made the same fix" if k > 1 else "made a different fix"
-            parts.append(f"{n(k)} {what} ({'passed' if g.passed == k else 'failed' if not g.passed else f'{g.passed} passed'})")
-        elif g.kind == "tampered":
+        if g.kind == "tampered":
             parts.append(f"{n(k)} edited the tests")
         elif g.kind == "no_change":
             parts.append(f"{n(k)} changed nothing")
         elif g.kind == "gave_up":
             parts.append(f"{n(k)} ran out of steps")
-        else:
+        elif g.kind == "killed":
             parts.append(f"{n(k)} killed by the sandbox")
     return " · ".join(parts) or None
 

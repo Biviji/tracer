@@ -52,6 +52,7 @@ export function killedBySandbox(exitReason: string | null | undefined): boolean 
  * (AI provider, clone).
  */
 export function statusLabel(status: RunStatus, exitReason?: string | null): string {
+  if (status === "fail" && exitReason === "tampered") return "TAMPERED";
   if (status !== "error") return status.toUpperCase();
   return killedBySandbox(exitReason) ? "KILLED" : "ERROR";
 }
