@@ -1,0 +1,12 @@
+[Unit]
+Description=TRACE: block sandbox setup containers from private networks and cloud metadata
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/tracer/deploy/sandbox-egress.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=docker.service

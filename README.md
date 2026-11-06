@@ -24,7 +24,7 @@ Built for **Vultr Track 01 · Blast Radius Zero**: a web agent that does real wo
 | `frontend/`     | Next.js + Tailwind UI (config, live grid, report, compare) | ✅ built      |
 | `orchestrator/` | FastAPI: spawn → stream → collect → score → persist, agent loop | ✅ built |
 | `runner/`       | Sandbox image each run's container starts from        | ✅ built       |
-| `demo-repo/`    | Deliberately fragile target app                       | ⏳ next        |
+| `demo-repo/`    | Small buggy shop library + failing tests (repo `demo`) | ✅ built       |
 | `docs/design/`  | Original static HTML design (reference only)          | 📎            |
 
 ## Quick start (whole stack)
@@ -46,7 +46,7 @@ flow works with no API key and no Docker-in-Docker. Two settings switch each par
 
 1. Vultr console → **Serverless Inference** → create a subscription → copy its **API Key**.
 2. In `.env`: `LLM_PROVIDER=openai_compatible`, `LLM_BASE_URL=https://api.vultrinference.com/v1`,
-   `LLM_API_KEY=<that key>`, `LLM_MODELS=glm-5.3,deepseek-v4.1-flash-1017,qwen3.8-27b,minimax-m3.1-flash`.
+   `LLM_API_KEY=<that key>`, `LLM_MODELS=qwen3.8-27b,glm-5.3,deepseek-v4.1-flash-1017,minimax-m3.1-flash`.
 3. `cd orchestrator && python -m app.llm.check` — then `docker compose up -d --force-recreate orchestrator`.
 
 Only models that support tool calls can drive the agent; `.env.example` lists the ones verified on Vultr.
@@ -54,20 +54,28 @@ Only models that support tool calls can drive the agent; `.env.example` lists th
 ### How a real run works (`SANDBOX_DRIVER=docker`)
 
 ```
-orchestrator                                   sandbox container (per run)
-────────────                                   ───────────────────────────
-git clone repo (orchestrator side)             network: none · caps: dropped · no-new-privileges
-start container, copy repo in  ─────────────▶  /workspace, user "agent", mem/CPU/pid caps, empty env
-agent loop:                                     
-  model ⇄ Groq / Vultr (API key stays here)    
-  tool call → one docker exec  ─────────────▶  list_files · read_file · write_file · run_command
-  result → back to the model   ◀─────────────  (each command time-capped)
-git diff + final answer        ◀─────────────
-destroy container (always: done, timeout, cancel, crash)
+orchestrator                                   per run: one volume, two throwaway containers
+────────────                                   ─────────────────────────────────────────────
+git clone (allowed hosts only, https,          
+  no redirects) or copy the demo repo          
+                                   ──────────▶ SETUP container  (only if the repo declares deps)
+                                               internet on an isolated bridge (no private IPs,
+                                               no cloud metadata) · pip / npm install · NO model
+                                               → destroyed
+                                   ──────────▶ AGENT container  network: none · caps dropped ·
+agent loop:                                    no-new-privileges · user "agent" · mem/CPU/pid caps ·
+  model ⇄ Vultr (API key stays here)           empty env · gVisor kernel (SANDBOX_RUNTIME=runsc)
+  tool call → one docker exec  ──────────────▶ list_files · read_file · write_file · run_command
+  result → back to the model   ◀────────────── (each command time-capped; tests can run)
+git diff + final answer        ◀──────────────
+destroy containers + volume (always: done, timeout, cancel, crash)
 ```
 
 The AI never gets a shell of its own, a network connection or a secret: it can only ask for
 one of four actions, and every action runs inside a box that is deleted afterwards.
+
+**Public deployment guards:** `MAX_RUNS_PER_HOUR` (everyone) and `MAX_RUNS_PER_CLIENT_PER_HOUR`
+(per visitor IP) bound model spend; over the cap the API answers 429. See `deploy/README.md`.
 
 ## Orchestrator (local dev)
 
