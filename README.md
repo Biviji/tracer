@@ -4,6 +4,17 @@
 
 Built for **Vultr Track 01 · Blast Radius Zero**: a web agent that does real work (it writes and runs code) and keeps every action inside an isolated, disposable sandbox.
 
+## The problem it solves
+
+Teams want coding agents to fix things on their own — failing tests, CI breakages, small issues — but they don't know if they can trust them, and they don't know which model is worth paying for. A single good demo proves nothing: agents are nondeterministic, and the same task can be fixed cleanly in one run and "fixed" by editing the tests in the next.
+
+TRACE answers both questions **on the team's own repo, with numbers**, instead of from blog posts or vibes:
+
+- **Can we trust it unattended?** Run the task N times and see how often the agent succeeds and how differently it gets there.
+- **Which model should we pay for?** Run the same task on each candidate model and compare pass rates and time.
+
+Typical uses: before letting a bot auto-fix failing tests, before routing CI breakages or small tickets to an agent, when choosing a model, and after changing the agent's prompt or setup.
+
 ## How it works
 
 ```

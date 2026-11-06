@@ -57,6 +57,26 @@ const STEPS = [
   },
 ];
 
+const QUESTIONS = [
+  {
+    t: "Can we trust it to run unattended?",
+    p: "One good demo proves nothing — an agent that fixes the bug today may rewrite the tests tomorrow. TRACE runs the task many times and tells you how often it actually gets it right.",
+    icon: <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7zM9 12l2 2 4-4" />,
+  },
+  {
+    t: "Which model is worth paying for?",
+    p: "Run the same task on each model you're considering and compare pass rates and time on your own code — not a leaderboard built on someone else's.",
+    icon: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+  },
+];
+
+const USE_CASES = [
+  ["Auto-fixing failing tests", "before you let a bot push fixes on its own"],
+  ["CI breakages & small issues", "before you route tickets to an agent"],
+  ["Picking a model", "before you sign up to pay for one"],
+  ["Changing the prompt or setup", "to check the agent didn't get worse"],
+];
+
 const FEATURES = [
   {
     t: "Reliability",
@@ -89,6 +109,9 @@ export default function LandingPage() {
             <Brand />
           </Link>
           <nav className="navlinks" aria-label="Landing">
+            <a href="#problem" className="hide-sm">
+              WHY TRACE
+            </a>
             <a href="#how" className="hide-sm">
               HOW IT WORKS
             </a>
@@ -194,6 +217,41 @@ export default function LandingPage() {
               <small>SANDBOXES DESTROYED AFTER EVERY RUN</small>
             </div>
           </div>
+        </section>
+
+        <section className="inner sec" id="problem">
+          <div className="sechead">
+            <h2>
+              THE PROBLEM<span className="sl">/</span>
+            </h2>
+            <p>WHAT TEAMS USE TRACE FOR</p>
+          </div>
+          <p className="problemlede">
+            Teams want coding agents to fix things <strong>on their own</strong> — failing tests, CI breakages, small
+            issues. But they don&apos;t know if they can trust them, or which model is worth paying for. TRACE answers
+            both <strong>on your own repo, with numbers</strong> — instead of blog posts or vibes.
+          </p>
+          <div className="why">
+            {QUESTIONS.map((q) => (
+              <div key={q.t} className="feat">
+                <div className="ico">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" aria-hidden>
+                    {q.icon}
+                  </svg>
+                </div>
+                <h3>{q.t}</h3>
+                <p>{q.p}</p>
+              </div>
+            ))}
+          </div>
+          <ul className="usecases" aria-label="Use cases">
+            {USE_CASES.map(([what, when]) => (
+              <li key={what}>
+                <b>{what}</b>
+                <span>{when}</span>
+              </li>
+            ))}
+          </ul>
         </section>
 
         <section className="inner sec" id="how">
@@ -312,8 +370,9 @@ export default function LandingPage() {
                 <Brand />
               </Link>
               <p>
-                An agent reliability meter. Give it one task; it runs that task many times in isolated Vultr sandboxes
-                and shows how often the agent succeeds and how its runs differ.
+                Know whether you can trust a coding agent — and which model to pay for — before you let it touch your
+                code. TRACE runs one task many times in isolated Vultr sandboxes and shows how often the agent succeeds
+                and how its runs differ.
               </p>
               <div className="badges">
                 <span className="badge red">

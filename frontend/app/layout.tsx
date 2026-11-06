@@ -17,7 +17,7 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: { default: "TRACE — Agent Reliability Lab", template: "%s · TRACE" },
   description:
-    "Run the same agent task N times in isolated Vultr sandboxes and measure how often it agrees with itself.",
+    "Find out if you can trust a coding agent, and which model to pay for: TRACE runs the same task N times in isolated Vultr sandboxes on your own repo.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
