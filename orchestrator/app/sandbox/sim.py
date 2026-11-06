@@ -46,6 +46,9 @@ class SimDriver:
     async def _tick(self, rnd: random.Random) -> None:
         await asyncio.sleep(self._step_s * (0.6 + rnd.random() * 0.8))
 
+    def validate_repo(self, repo: str) -> None:
+        pass  # simulated runs clone nothing
+
     async def run(self, spec: RunSpec, report: RunReporter) -> RunResult:
         rnd = random.Random(f"{spec.task}#{spec.run_index}")
         roll = rnd.random()

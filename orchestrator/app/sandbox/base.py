@@ -52,4 +52,8 @@ class SandboxDriver(Protocol):
     #: Rough number of steps a run takes; only used to draw progress bars.
     expected_steps: int
 
+    def validate_repo(self, repo: str) -> None:
+        """Raise ValueError if this driver would refuse `repo`, so the API can reject it up front."""
+        ...
+
     async def run(self, spec: RunSpec, report: RunReporter) -> RunResult: ...

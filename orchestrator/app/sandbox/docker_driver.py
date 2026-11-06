@@ -45,10 +45,13 @@ AGENT_UID = 1000
 LABEL = "trace.sandbox"
 MAX_DIFF_LINES_PER_FILE = 200
 _REPO_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:\d+)?/[\w.@:/~+-]+$")
-#: Bridge network used only by setup containers. Container-to-container traffic is off; on a
-#: server, deploy/sandbox-egress.sh also blocks it from private ranges and cloud metadata.
-SETUP_NETWORK = "trace-setup"
-SETUP_BRIDGE = "trace-setup0"
+#: Setup containers use Docker's default bridge (docker0) with public DNS servers: user-defined
+#: networks force Docker's embedded DNS, which gVisor can't use. Nothing else of TRACE runs on
+#: docker0 (compose has its own network); on a server, deploy/README.md turns off
+#: container-to-container traffic there and deploy/sandbox-egress.sh blocks private ranges
+#: and cloud metadata from it.
+SETUP_NETWORK = "bridge"
+SETUP_DNS = ["1.1.1.1", "8.8.8.8"]
 DEMO_NAMES = {"demo", "demo-repo"}
 #: Installed dependencies and test-run leftovers must not show up in the agent's diff.
 _DEP_DIRS = (".venv/", "node_modules/", "__pycache__/", "*.pyc", ".pytest_cache/")
@@ -275,6 +278,13 @@ class DockerDriver:
 
     # ---- lifecycle helpers ----
 
+    def validate_repo(self, repo: str) -> None:
+        if not is_demo(repo):
+            try:
+                normalize_repo_url(repo, self._s.repo_hosts)
+            except CloneError as err:
+                raise ValueError(str(err)) from err
+
     def check(self) -> None:
         """Fail fast at startup if Docker, the sandbox image or the runtime is missing."""
         self._client.ping()
@@ -297,19 +307,6 @@ class DockerDriver:
             v.remove(force=True)
         return len(orphans)
 
-    def _ensure_setup_network(self) -> str:
-        if not self._client.networks.list(names=[SETUP_NETWORK]):
-            self._client.networks.create(
-                SETUP_NETWORK,
-                driver="bridge",
-                labels={"trace.network": "setup"},
-                options={
-                    "com.docker.network.bridge.enable_icc": "false",  # setup boxes can't reach each other
-                    "com.docker.network.bridge.name": SETUP_BRIDGE,
-                },
-            )
-        return SETUP_NETWORK
-
     def _start(self, spec: RunSpec, volume: str, *, role: str, network: str = "none") -> Container:
         lim = spec.limits
         return self._client.containers.run(
@@ -318,6 +315,7 @@ class DockerDriver:
             name=f"trace-{spec.experiment_id.lower()}-r{spec.run_index}-{role}-{uuid.uuid4().hex[:6]}",
             labels={LABEL: "1", "trace.experiment": spec.experiment_id, "trace.role": role},
             network_mode=network,
+            dns=SETUP_DNS if network != "none" else None,
             volumes={volume: {"bind": WORKDIR, "mode": "rw"}},
             runtime=self._s.sandbox_runtime or None,
             mem_limit=f"{lim.memory_mb}m",
@@ -411,8 +409,7 @@ class DockerDriver:
     ) -> None:
         """Install dependencies in a throwaway container that has internet; no model involved.
         A failed install is reported and the agent still runs (just without those packages)."""
-        network = await asyncio.to_thread(self._ensure_setup_network)
-        setup = await asyncio.to_thread(self._start, spec, volume, role="setup", network=network)
+        setup = await asyncio.to_thread(self._start, spec, volume, role="setup", network=SETUP_NETWORK)
         containers.append(setup)
         await asyncio.to_thread(setup.put_archive, WORKDIR, archive)
         report.log("$ installing dependencies (setup container: internet on, no model)")

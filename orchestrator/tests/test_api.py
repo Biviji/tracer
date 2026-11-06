@@ -22,6 +22,10 @@ class HangingDriver:
     def __init__(self):
         self.cleaned_up = 0
 
+    def validate_repo(self, repo: str) -> None:
+        if "10.0.0.1" in repo:
+            raise ValueError("repos can only be cloned from github.com")
+
     async def run(self, spec: RunSpec, report) -> RunResult:
         report.running()
         report.step("Start infinite loop")
@@ -158,3 +162,10 @@ def test_per_client_cap_is_per_visitor(tmp_path):
         assert res.status_code == 429 and "of your 4 runs" in res.json()["detail"]
         b = {"x-forwarded-for": "203.0.113.2"}
         assert client.post("/experiments", json=body, headers=b).status_code == 201
+
+
+def test_refused_repo_is_rejected_before_anything_runs(tmp_path):
+    with make_client(tmp_path, driver=HangingDriver()) as client:
+        res = client.post("/experiments", json={"repo": "https://10.0.0.1/x/y", "task": TASK, "agentId": "fake", "runs": 1})
+        assert res.status_code == 422 and "github.com" in res.json()["detail"]
+        assert client.get("/experiments").json() == []

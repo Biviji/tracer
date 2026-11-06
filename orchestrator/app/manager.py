@@ -99,6 +99,10 @@ class ExperimentManager:
             raise Invalid(f"Unknown agent {req.agent_id}")
         if req.runs > self._settings.max_runs:
             raise Invalid(f"runs must be between 1 and {self._settings.max_runs}")
+        try:
+            self._driver.validate_repo(req.repo)
+        except ValueError as err:
+            raise Invalid(str(err)) from err
         self._check_hourly_caps(req.runs, client)
 
         exp = self._store.create(repo=req.repo, task=req.task, agent=agent, runs=req.runs, limits=self.limits())

@@ -27,7 +27,11 @@ curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor -o /usr/share/keyrings
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
   > /etc/apt/sources.list.d/gvisor.list
 apt-get update && apt-get install -y runsc
-runsc install && systemctl restart docker
+runsc install
+
+# Dependency-install containers use the default bridge: no container-to-container traffic there
+python3 -c "import json,pathlib; p=pathlib.Path('/etc/docker/daemon.json'); c=json.loads(p.read_text()) if p.exists() else {}; c['icc']=False; p.write_text(json.dumps(c, indent=2))"
+systemctl restart docker
 ```
 
 ## 3. Code
