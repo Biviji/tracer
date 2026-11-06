@@ -82,7 +82,8 @@ class ExperimentManager:
         self._bus = bus
         self._driver = driver
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._recent_runs: list[tuple[float, int]] = []  # (monotonic time, runs) for the hourly cap
+        # (monotonic time, client, runs) for the hourly spend caps
+        self._recent_runs: list[tuple[float, str, int]] = []
 
     # ---------- public ----------
 
@@ -92,13 +93,13 @@ class ExperimentManager:
             timeout_s=s.sandbox_timeout_s, memory_mb=s.sandbox_memory_mb, cpus=s.sandbox_cpus, network="none"
         )
 
-    async def create(self, req: CreateExperimentRequest) -> ExperimentSummary:
+    async def create(self, req: CreateExperimentRequest, client: str = "") -> ExperimentSummary:
         agent = find_agent(self._settings, req.agent_id)
         if agent is None:
             raise Invalid(f"Unknown agent {req.agent_id}")
         if req.runs > self._settings.max_runs:
             raise Invalid(f"runs must be between 1 and {self._settings.max_runs}")
-        self._check_hourly_cap(req.runs)
+        self._check_hourly_caps(req.runs, client)
 
         exp = self._store.create(repo=req.repo, task=req.task, agent=agent, runs=req.runs, limits=self.limits())
         task = asyncio.create_task(self._execute(exp), name=f"experiment {exp.id}")
@@ -107,16 +108,23 @@ class ExperimentManager:
         log.info("experiment %s created: %d runs on %s", exp.id, req.runs, agent.model)
         return exp.summary()
 
-    def _check_hourly_cap(self, runs: int) -> None:
-        cap = self._settings.max_runs_per_hour
-        if not cap:
+    def _check_hourly_caps(self, runs: int, client: str) -> None:
+        """Spend guard for a public site: total runs per rolling hour, and per visitor."""
+        total_cap = self._settings.max_runs_per_hour
+        client_cap = self._settings.max_runs_per_client_per_hour
+        if not total_cap and not client_cap:
             return
         now = time.monotonic()
-        self._recent_runs = [(t, n) for t, n in self._recent_runs if now - t < 3600]
-        used = sum(n for _, n in self._recent_runs)
-        if used + runs > cap:
-            raise Busy(f"Hourly limit reached ({used}/{cap} runs used). Try again later or with fewer runs.")
-        self._recent_runs.append((now, runs))
+        self._recent_runs = [r for r in self._recent_runs if now - r[0] < 3600]
+        if client_cap and client:
+            used = sum(n for _, c, n in self._recent_runs if c == client)
+            if used + runs > client_cap:
+                raise Busy(f"You've used {used} of your {client_cap} runs this hour. Try again later or with fewer runs.")
+        if total_cap:
+            used = sum(n for _, _, n in self._recent_runs)
+            if used + runs > total_cap:
+                raise Busy(f"Hourly limit reached ({used}/{total_cap} runs used). Try again later or with fewer runs.")
+        self._recent_runs.append((now, client, runs))
 
     async def cancel(self, experiment_id: str) -> None:
         exp = self._store.get(experiment_id)

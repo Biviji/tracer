@@ -147,3 +147,14 @@ def test_hourly_run_cap_refuses_with_429(tmp_path):
         assert res.status_code == 429
         assert "Hourly limit" in res.json()["detail"]
         create(client, runs=2)  # still fits under the cap
+
+
+def test_per_client_cap_is_per_visitor(tmp_path):
+    body = {"repo": "demo-repo", "task": TASK, "agentId": "fake", "runs": 3}
+    with make_client(tmp_path, max_runs_per_client_per_hour=4) as client:
+        a = {"x-forwarded-for": "203.0.113.1, 172.18.0.5"}
+        assert client.post("/experiments", json=body, headers=a).status_code == 201
+        res = client.post("/experiments", json=body, headers=a)
+        assert res.status_code == 429 and "of your 4 runs" in res.json()["detail"]
+        b = {"x-forwarded-for": "203.0.113.2"}
+        assert client.post("/experiments", json=body, headers=b).status_code == 201
