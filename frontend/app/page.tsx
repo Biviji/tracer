@@ -84,6 +84,22 @@ const EXAMPLE: ExampleRun[] = [
   },
 ];
 
+/** Twinkling points around the eclipse glow: [x%, y%, delay s]. */
+const STARS: [number, number, number][] = [
+  [8, 30, 0],
+  [16, 12, -1.1],
+  [27, 44, -2.3],
+  [35, 6, -0.4],
+  [64, 8, -1.8],
+  [73, 40, -0.9],
+  [84, 14, -2.7],
+  [92, 34, -1.4],
+  [22, 24, -3.1],
+  [78, 26, -0.2],
+  [50, 2, -2.0],
+  [5, 50, -1.6],
+];
+
 const STEPS = [
   {
     l: "THE TASK",
@@ -196,39 +212,55 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <figure className="demo" aria-label="Example experiment">
-              <div className="dh">
-                EXAMPLE · DEMO REPO · FIX THE FAILING TESTS <span className="tag">5 PARALLEL RUNS</span>
-              </div>
-              <div className="demogrid">
-                {EXAMPLE.map((r) => (
-                  <div key={r.n} className={`dcell ${r.pass ? "pass" : "fail"}`}>
-                    <div className="ch">
-                      RUN {r.n}
-                      <span className="st">{r.pass ? "PASS" : "FAIL"}</span>
-                    </div>
-                    <div className="log">
-                      {r.lines.map(([text, ok]) => (
-                        <div key={text} className={ok ? "ok" : "er"}>
-                          {text}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="b">
-                      <i />
-                    </div>
-                  </div>
+            <div className="demostage">
+              <div className="eclipse" aria-hidden>
+                <i className="orbit o-a" />
+                <i className="orbit o-b" />
+                <i className="orbit o-c" />
+                <i className="core" />
+                <i className="flare" />
+                {STARS.map(([x, y, d], n) => (
+                  <b
+                    key={n}
+                    className="star"
+                    style={{ left: x * 9.2 - 460, top: y * 2.3 - 230, animationDelay: `${d}s` }}
+                  />
                 ))}
               </div>
-              <figcaption className="verdict">
-                <span className="rel">3/5</span>
-                <span className="vt">
-                  <b>60% RELIABLE.</b> Two runs went their own way: one fixed dates with <b>dayfirst=True</b> and broke
-                  ISO dates, one edited the tests.{" "}
-                  <span style={{ color: "var(--muted)" }}>Not safe to automate yet.</span>
-                </span>
-              </figcaption>
-            </figure>
+              <figure className="demo" aria-label="Example experiment">
+                <div className="dh">
+                  EXAMPLE · DEMO REPO · FIX THE FAILING TESTS <span className="tag">5 PARALLEL RUNS</span>
+                </div>
+                <div className="demogrid">
+                  {EXAMPLE.map((r) => (
+                    <div key={r.n} className={`dcell ${r.pass ? "pass" : "fail"}`}>
+                      <div className="ch">
+                        RUN {r.n}
+                        <span className="st">{r.pass ? "PASS" : "FAIL"}</span>
+                      </div>
+                      <div className="log">
+                        {r.lines.map(([text, ok]) => (
+                          <div key={text} className={ok ? "ok" : "er"}>
+                            {text}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="b">
+                        <i />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <figcaption className="verdict">
+                  <span className="rel">3/5</span>
+                  <span className="vt">
+                    <b>60% RELIABLE.</b> Two runs went their own way: one fixed dates with <b>dayfirst=True</b> and
+                    broke ISO dates, one edited the tests.{" "}
+                    <span style={{ color: "var(--muted)" }}>Not safe to automate yet.</span>
+                  </span>
+                </figcaption>
+              </figure>
+            </div>
             <p className="note">Illustrative example. Try the real thing with repo “demo”.</p>
           </section>
         </div>
