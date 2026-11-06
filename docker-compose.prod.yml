@@ -1,0 +1,30 @@
+# Production overlay for a public server (e.g. the Vultr VM): adds Caddy for HTTPS + a
+# password, and stops publishing the frontend's port so Caddy is the only way in.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Needs in .env: SITE_ADDRESS, BASIC_AUTH_HASH (and optionally BASIC_AUTH_USER). See deploy/README.md.
+services:
+  frontend:
+    ports: !reset []
+
+  caddy:
+    image: caddy:2.8.4
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env, e.g. 1-2-3-4.sslip.io}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-trace}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?set BASIC_AUTH_HASH in .env (see deploy/README.md)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # certificates: keep them so restarts don't re-request
+      - caddy-config:/config
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

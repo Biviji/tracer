@@ -1,0 +1,17 @@
+# Public entry point on the VM: automatic HTTPS + a password in front of the whole app.
+# The orchestrator and sandboxes are never exposed; the browser reaches the API via the
+# frontend's /api proxy. Caddy streams SSE (the live view) without buffering by default.
+{$SITE_ADDRESS} {
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+
+	reverse_proxy frontend:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
