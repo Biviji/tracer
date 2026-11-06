@@ -19,12 +19,6 @@ export const metadata: Metadata = {
 
 const GITHUB = "https://github.com/Biviji/tracer";
 
-const VultrMark = ({ size = 12 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-    <path d="M3 4h7l4 16h-5L3 4z" />
-  </svg>
-);
-
 const Brand = () => (
   <>
     <span className="sq" aria-hidden>
@@ -334,60 +328,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="flowband" aria-label="Architecture">
-          <div className="inner sec">
-            <div className="sechead">
-              <h2>
-                WHERE IT RUNS<span className="sl">/</span>
-              </h2>
-              <p>EVERY PIECE ON VULTR</p>
-            </div>
-            <div className="flow">
-              <div className="fnode">
-                <span className="fl">01 · YOU</span>
-                <b>Browser</b>
-                <p>Pick repo, task, model and N. Watch runs live.</p>
-              </div>
-              <div className="farrow" aria-hidden>
-                &rarr;
-              </div>
-              <div className="fnode">
-                <span className="fl">02 · ORCHESTRATOR</span>
-                <b>Experiment manager</b>
-                <p>Clones, spawns, streams, scores, stores. Holds the only API key.</p>
-                <span className="vultrtag">
-                  <VultrMark size={11} />
-                  CLOUD COMPUTE
-                </span>
-              </div>
-              <div className="farrow" aria-hidden>
-                &rarr;
-              </div>
-              <div className="fnode">
-                <span className="fl">03 · SANDBOXES</span>
-                <b>One per run</b>
-                <p>gVisor, no network, no secrets, capped, destroyed after.</p>
-                <span className="vultrtag">
-                  <VultrMark size={11} />
-                  CLOUD COMPUTE
-                </span>
-              </div>
-              <div className="farrow" aria-hidden>
-                &rarr;
-              </div>
-              <div className="fnode">
-                <span className="fl">04 · MODEL</span>
-                <b>The agent&apos;s brain</b>
-                <p>Qwen, GLM, DeepSeek, MiniMax — tool-calling models.</p>
-                <span className="vultrtag">
-                  <VultrMark size={11} />
-                  SERVERLESS INFERENCE
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section className="inner sec" id="why">
           <div className="splithead">
             <h2>
@@ -435,7 +375,7 @@ export default function LandingPage() {
 
       <footer className="footer">
         <div className="inner">
-          <div className="foottop">
+          <div className="footmain">
             <div className="footbrand">
               <Link className="brand" href="/">
                 <Brand />
@@ -445,15 +385,6 @@ export default function LandingPage() {
                 code.
               </p>
             </div>
-            <div className="pills">
-              <LiveStatus />
-              <span className="pill">
-                <VultrMark size={11} /> BUILT ON VULTR
-              </span>
-            </div>
-          </div>
-
-          <div className="footcols">
             <div className="footcol">
               <h4>Product</h4>
               <ul>
@@ -482,7 +413,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a href={GITHUB} target="_blank" rel="noopener noreferrer">
-                    GitHub repo ↗
+                    GitHub ↗
                   </a>
                 </li>
               </ul>
@@ -501,25 +432,10 @@ export default function LandingPage() {
                 </li>
               </ul>
             </div>
-            <div className="footcol">
-              <h4>Track</h4>
-              <ul>
-                <li>
-                  <span>Vultr Track 01</span>
-                </li>
-                <li>
-                  <span>Blast Radius Zero</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="wordmark" aria-hidden>
-            TRACE<span>.</span>
           </div>
           <div className="footbar">
-            <span>© 2026 TRACE · AGENT RELIABILITY LAB</span>
-            <span>EVERY SANDBOX DESTROYED · EVERY REPORT KEPT</span>
+            <LiveStatus />
+            <span>© 2026 TRACE · VULTR TRACK 01 · BLAST RADIUS ZERO</span>
           </div>
         </div>
       </footer>

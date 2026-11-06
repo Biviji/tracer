@@ -16,9 +16,9 @@ export function LandingMotion() {
     }
 
     const blocks = Array.from(
-      root.querySelectorAll(".statrow, .sec .sechead, .splithead, .chapter, .figs, .flow, .ctainner"),
+      root.querySelectorAll(".statrow, .sec .sechead, .splithead, .chapter, .figs, .ctainner"),
     );
-    for (const group of root.querySelectorAll(".figs, .flow, .statrow")) {
+    for (const group of root.querySelectorAll(".figs, .statrow")) {
       let i = 0;
       for (const kid of Array.from(group.children) as HTMLElement[]) {
         if (kid.classList.contains("farrow")) continue;
