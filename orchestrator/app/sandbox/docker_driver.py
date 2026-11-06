@@ -1,13 +1,17 @@
-"""Real sandboxes: one locked-down Docker container per run.
+"""Real sandboxes: locked-down Docker containers, fresh for every run.
 
 Per run:
-  1. clone the repo on the orchestrator side (the sandbox never gets network)
-  2. start a container: network none, no capabilities, no-new-privileges,
-     memory / CPU / process caps, unprivileged user, no secrets in its env
-  3. copy the repo in, run the agent loop (each tool call = one `docker exec`)
+  1. clone the repo on the orchestrator side (only from allowed hosts), or copy the demo repo
+  2. if the repo declares dependencies: a short-lived *setup* container on an isolated bridge
+     network installs them into /workspace (.venv / node_modules), then is destroyed.
+     The model is not involved in this step.
+  3. the *agent* container starts on the same per-run volume with NO network, no
+     capabilities, no-new-privileges, memory / CPU / process caps, an unprivileged user,
+     no secrets in its env, and optionally gVisor; each agent tool call = one `docker exec`
   4. collect `git diff` and the agent's answer
-  5. destroy the container — always, including on timeout, cancel and crash
+  5. destroy the containers and the volume — always, including on timeout, cancel and crash
 
+So the model never shares a box with the internet.
 Docker SDK calls block, so they run in worker threads.
 """
 
@@ -22,6 +26,7 @@ import tarfile
 import tempfile
 import uuid
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 import docker
 from docker.errors import DockerException, NotFound
@@ -40,32 +45,49 @@ AGENT_UID = 1000
 LABEL = "trace.sandbox"
 MAX_DIFF_LINES_PER_FILE = 200
 _REPO_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:\d+)?/[\w.@:/~+-]+$")
+#: Bridge network used only by setup containers. Container-to-container traffic is off; on a
+#: server, deploy/sandbox-egress.sh also blocks it from private ranges and cloud metadata.
+SETUP_NETWORK = "trace-setup"
+SETUP_BRIDGE = "trace-setup0"
+DEMO_NAMES = {"demo", "demo-repo"}
+#: Installed dependencies and test-run leftovers must not show up in the agent's diff.
+_DEP_DIRS = (".venv/", "node_modules/", "__pycache__/", "*.pyc", ".pytest_cache/")
 
 
 class CloneError(Exception):
     pass
 
 
-def normalize_repo_url(repo: str) -> str:
-    """Accept 'github.com/x/y' or 'https://...'. Anything else (file://, ssh, local paths) is refused."""
+def is_demo(repo: str) -> bool:
+    return repo.strip().lower() in DEMO_NAMES
+
+
+def normalize_repo_url(repo: str, allowed_hosts: set[str] | None = None) -> str:
+    """Accept 'github.com/x/y' or 'https://...' on an allowed host. Anything else
+    (file://, ssh, local paths, internal addresses) is refused."""
     repo = repo.strip()
     if not repo.startswith(("https://", "http://")):
         repo = "https://" + repo
     if not _REPO_URL.match(repo):
         raise CloneError("repo must be a public https git URL, e.g. https://github.com/owner/name")
+    host = (urlsplit(repo).hostname or "").lower()
+    if allowed_hosts and "*" not in allowed_hosts and host not in allowed_hosts:
+        raise CloneError(f"repos can only be cloned from {', '.join(sorted(allowed_hosts))} (or use 'demo')")
     return repo
 
 
 def _clone(url: str, dest: Path, timeout_s: int, max_mb: int) -> None:
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}  # private repos fail fast
+    argv = [
+        "git",
+        # https only, and no redirects: a redirect could lead away from the allowed host.
+        "-c", "protocol.allow=never",
+        "-c", "protocol.https.allow=always",
+        "-c", "http.followRedirects=false",
+        "clone", "--depth", "1", "--single-branch", "--no-tags", "--", url, str(dest),
+    ]  # fmt: skip
     try:
-        proc = subprocess.run(
-            ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", "--", url, str(dest)],
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=env,
-        )
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout_s, env=env)
     except subprocess.TimeoutExpired as err:
         raise CloneError(f"clone timed out after {timeout_s}s") from err
     if proc.returncode != 0:
@@ -74,6 +96,50 @@ def _clone(url: str, dest: Path, timeout_s: int, max_mb: int) -> None:
     size_mb = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file()) / 1e6
     if size_mb > max_mb:
         raise CloneError(f"repo is {size_mb:.0f}MB, over the {max_mb}MB cap")
+
+
+def _copy_demo(src: Path, dest: Path) -> None:
+    """The built-in demo project, as a fresh one-commit git repo."""
+    if not (src / "README.md").is_file():
+        raise CloneError(f"demo repo not found at {src}")
+    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__", ".pytest_cache"))
+    git = ["git", "-c", "user.email=demo@trace.local", "-c", "user.name=TRACE", "-c", "core.autocrlf=false"]
+    for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "demo repo"]):
+        subprocess.run([*git, *cmd], cwd=dest, check=True, capture_output=True)
+
+
+def _exclude_dep_dirs(repo: Path) -> None:
+    exclude = repo / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    with exclude.open("a", encoding="utf-8", newline="\n") as f:
+        f.write("\n# installed by TRACE setup\n" + "\n".join(_DEP_DIRS) + "\n")
+
+
+def install_command(repo: Path) -> str | None:
+    """Shell command installing the repo's declared dependencies, or None if it declares none.
+    npm lifecycle scripts are skipped; pip may still build packages (setup.py), which happens
+    in the setup container — the model never touches it."""
+    steps: list[str] = []
+    reqs = [r for r in ("requirements.txt", "requirements-dev.txt", "requirements-test.txt") if (repo / r).is_file()]
+    pyproject = repo / "pyproject.toml"
+    packaged = (repo / "setup.py").is_file() or (
+        pyproject.is_file() and ("[project]" in (text := pyproject.read_text(errors="replace")) or "[build-system]" in text)
+    )
+    if reqs or packaged:
+        pip = ".venv/bin/pip install -q --disable-pip-version-check"
+        steps.append("python -m venv --system-site-packages .venv")
+        # `pytest` from the image runs on the system python; point it at the venv instead.
+        steps.append(
+            r"""printf '#!/bin/sh\nexec /workspace/.venv/bin/python -m pytest "$@"\n' > .venv/bin/pytest"""
+            " && chmod +x .venv/bin/pytest"
+        )
+        steps += [f"{pip} -r {r}" for r in reqs]
+        if packaged:
+            steps.append(f"({pip} -e . || echo 'note: the package itself was not installed')")
+    if (repo / "package.json").is_file():
+        npm = "npm ci" if (repo / "package-lock.json").is_file() else "npm install"
+        steps.append(f"{npm} --ignore-scripts --no-audit --no-fund --loglevel=error")
+    return " && ".join(steps) or None
 
 
 def _force_remove(func, path, _exc) -> None:
@@ -165,9 +231,10 @@ class _ContainerWorkspace:
             target = self._inside(path)
         except ValueError as err:
             return f"ERROR: {err}"
-        code, out = await self._exec(
-            ["find", target, "-maxdepth", "3", "-not", "-path", "*/.git", "-not", "-path", "*/.git/*"]
-        )
+        prune = []
+        for d in (".git", ".venv", "node_modules"):
+            prune += ["-not", "-path", f"*/{d}", "-not", "-path", f"*/{d}/*"]
+        code, out = await self._exec(["find", target, "-maxdepth", "3", *prune])
         lines = [line.removeprefix(WORKDIR + "/") for line in out.splitlines()][:400]
         return "\n".join(lines) if code == 0 else f"ERROR: {out.strip()}"
 
@@ -203,29 +270,56 @@ class DockerDriver:
         self._s = settings
         self._llm = llm
         self._client = docker.from_env()
+        if settings.sandbox_runtime:
+            self.name = f"docker+{self.runtime_label.lower()}"  # shown in /health
 
     # ---- lifecycle helpers ----
 
     def check(self) -> None:
-        """Fail fast at startup if Docker or the sandbox image is missing."""
+        """Fail fast at startup if Docker, the sandbox image or the runtime is missing."""
         self._client.ping()
         self._client.images.get(self._s.sandbox_image)
+        runtime = self._s.sandbox_runtime
+        if runtime and runtime not in (self._client.info().get("Runtimes") or {}):
+            raise RuntimeError(f"Docker has no runtime '{runtime}' (SANDBOX_RUNTIME); see deploy/README.md")
+
+    @property
+    def runtime_label(self) -> str:
+        r = self._s.sandbox_runtime
+        return "gVisor" if r == "runsc" else r or "runc"
 
     def remove_orphans(self) -> int:
-        """Containers left behind by a crash or restart: they must not outlive their run."""
+        """Containers / volumes left by a crash or restart: they must not outlive their run."""
         orphans = self._client.containers.list(all=True, filters={"label": LABEL})
         for c in orphans:
             c.remove(force=True)
+        for v in self._client.volumes.list(filters={"label": LABEL}):
+            v.remove(force=True)
         return len(orphans)
 
-    def _start(self, spec: RunSpec) -> Container:
+    def _ensure_setup_network(self) -> str:
+        if not self._client.networks.list(names=[SETUP_NETWORK]):
+            self._client.networks.create(
+                SETUP_NETWORK,
+                driver="bridge",
+                labels={"trace.network": "setup"},
+                options={
+                    "com.docker.network.bridge.enable_icc": "false",  # setup boxes can't reach each other
+                    "com.docker.network.bridge.name": SETUP_BRIDGE,
+                },
+            )
+        return SETUP_NETWORK
+
+    def _start(self, spec: RunSpec, volume: str, *, role: str, network: str = "none") -> Container:
         lim = spec.limits
         return self._client.containers.run(
             self._s.sandbox_image,
             detach=True,
-            name=f"trace-{spec.experiment_id.lower()}-r{spec.run_index}-{uuid.uuid4().hex[:6]}",
-            labels={LABEL: "1", "trace.experiment": spec.experiment_id},
-            network_mode="none",
+            name=f"trace-{spec.experiment_id.lower()}-r{spec.run_index}-{role}-{uuid.uuid4().hex[:6]}",
+            labels={LABEL: "1", "trace.experiment": spec.experiment_id, "trace.role": role},
+            network_mode=network,
+            volumes={volume: {"bind": WORKDIR, "mode": "rw"}},
+            runtime=self._s.sandbox_runtime or None,
             mem_limit=f"{lim.memory_mb}m",
             memswap_limit=f"{lim.memory_mb}m",  # no swap: the memory cap is real
             nano_cpus=int(lim.cpus * 1e9),
@@ -239,26 +333,46 @@ class DockerDriver:
     # ---- one run ----
 
     async def run(self, spec: RunSpec, report: RunReporter) -> RunResult:
-        try:
-            url = normalize_repo_url(spec.repo)
-        except CloneError as err:
-            report.log(f"✗ {err}", "error")
-            return RunResult.killed("bad_repo_url")
+        demo = is_demo(spec.repo)
+        url = ""
+        if not demo:
+            try:
+                url = normalize_repo_url(spec.repo, self._s.repo_hosts)
+            except CloneError as err:
+                report.log(f"✗ {err}", "error")
+                return RunResult.killed("bad_repo_url")
 
         tmp = Path(tempfile.mkdtemp(prefix="trace-clone-"))
-        container: Container | None = None
+        repo = tmp / "repo"
+        containers: list[Container] = []
+        volume = None
         try:
-            report.log(f"$ git clone {url}")
             try:
-                await asyncio.to_thread(_clone, url, tmp / "repo", self._s.clone_timeout_s, self._s.max_repo_mb)
+                if demo:
+                    report.log("$ using the built-in demo repo")
+                    await asyncio.to_thread(_copy_demo, self._s.demo_repo_dir, repo)
+                else:
+                    report.log(f"$ git clone {url}")
+                    await asyncio.to_thread(_clone, url, repo, self._s.clone_timeout_s, self._s.max_repo_mb)
             except CloneError as err:
                 report.log(f"✗ {err}", "error")
                 return RunResult.killed("clone_failed")
+            await asyncio.to_thread(_exclude_dep_dirs, repo)
+            archive = await asyncio.to_thread(_tar_dir, repo)
+            install = install_command(repo) if self._s.sandbox_install_deps else None
 
-            container = await asyncio.to_thread(self._start, spec)
-            await asyncio.to_thread(container.put_archive, WORKDIR, _tar_dir(tmp / "repo"))
+            volume = await asyncio.to_thread(self._client.volumes.create, labels={LABEL: "1"})
             report.running()
-            report.log(f"sandbox up · {spec.limits.memory_mb}MB · {spec.limits.cpus:g} CPU · no network")
+            if install:
+                await self._setup(spec, volume.name, archive, install, report, containers)
+
+            container = await asyncio.to_thread(self._start, spec, volume.name, role="agent")
+            containers.append(container)
+            if not install:
+                await asyncio.to_thread(container.put_archive, WORKDIR, archive)
+            report.log(
+                f"sandbox up · {spec.limits.memory_mb}MB · {spec.limits.cpus:g} CPU · no network · {self.runtime_label}"
+            )
 
             ws = _ContainerWorkspace(container, self._s.command_timeout_s)
             try:
@@ -283,9 +397,48 @@ class DockerDriver:
             return RunResult(outcome="fail", diff=diff, answer=result.answer, exit_reason="step_limit")
         finally:
             shutil.rmtree(tmp, onexc=_force_remove)
-            if container is not None:
-                # Shielded: a cancelled run still waits for its container to be gone.
-                await asyncio.shield(asyncio.to_thread(self._destroy, container))
+            # Shielded: a cancelled run still waits for its sandbox to be gone.
+            await asyncio.shield(asyncio.to_thread(self._destroy_all, containers, volume))
+
+    async def _setup(
+        self,
+        spec: RunSpec,
+        volume: str,
+        archive: bytes,
+        install: str,
+        report: RunReporter,
+        containers: list[Container],
+    ) -> None:
+        """Install dependencies in a throwaway container that has internet; no model involved.
+        A failed install is reported and the agent still runs (just without those packages)."""
+        network = await asyncio.to_thread(self._ensure_setup_network)
+        setup = await asyncio.to_thread(self._start, spec, volume, role="setup", network=network)
+        containers.append(setup)
+        await asyncio.to_thread(setup.put_archive, WORKDIR, archive)
+        report.log("$ installing dependencies (setup container: internet on, no model)")
+        t = self._s.setup_timeout_s
+        code, out = await _ContainerWorkspace(setup, t)._exec(["timeout", "-s", "KILL", str(t), "bash", "-lc", install])
+        if code == 0:
+            report.step("Install dependencies", detail=install)
+            report.log("✓ dependencies installed · setup container destroyed · agent starts offline", "ok")
+        else:
+            reason = f"timed out after {t}s" if code == 137 else f"exit code {code}"
+            tail = "\n".join(out.strip().splitlines()[-6:])
+            report.step("Install dependencies (failed)", detail=f"{install}\n{reason}\n{tail}")
+            report.log(f"✗ dependency install failed ({reason}); continuing without them", "error")
+        await asyncio.to_thread(self._destroy, setup)
+        containers.remove(setup)
+
+    def _destroy_all(self, containers: list[Container], volume) -> None:
+        for c in containers:
+            self._destroy(c)
+        if volume is not None:
+            try:
+                volume.remove(force=True)
+            except NotFound:
+                pass
+            except DockerException:
+                log.exception("could not remove sandbox volume %s", volume.name)
 
     @staticmethod
     def _destroy(container: Container) -> None:
@@ -297,4 +450,4 @@ class DockerDriver:
             log.exception("could not remove sandbox %s", container.name)
 
 
-__all__ = ["CloneError", "DockerDriver", "normalize_repo_url", "parse_git_diff"]
+__all__ = ["CloneError", "DockerDriver", "install_command", "is_demo", "normalize_repo_url", "parse_git_diff"]

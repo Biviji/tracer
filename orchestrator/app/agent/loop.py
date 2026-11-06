@@ -22,6 +22,9 @@ SYSTEM_PROMPT = """You are a software engineering agent working on a repository.
 
 The repository is checked out at /workspace inside an isolated sandbox:
 - there is NO network access (installing packages or downloading will fail);
+- the repository's declared dependencies (requirements*.txt, pyproject, package.json) were
+  installed beforehand into /workspace/.venv or node_modules, already on PATH, so you can
+  run the tests (e.g. `pytest`, `npm test`);
 - you can inspect and change files and run commands with the tools provided;
 - work step by step: look around before you change anything.
 

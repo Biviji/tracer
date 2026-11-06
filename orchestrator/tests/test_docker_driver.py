@@ -84,7 +84,7 @@ def test_real_sandbox_run(local_repo):
     )
     settings = Settings(_env_file=None, sandbox_driver="docker", agent_max_steps=10, command_timeout_s=20)
     driver = DockerDriver(settings, llm)
-    spec = RunSpec("EXP-TEST", 1, "https://example.com/x/y", "Check JWT", "m", SandboxLimits(timeout_s=120, memory_mb=256, cpus=0.5, network="none"))
+    spec = RunSpec("EXP-TEST", 1, "https://github.com/x/y", "Check JWT", "m", SandboxLimits(timeout_s=120, memory_mb=256, cpus=0.5, network="none"))
     rep = Reporter()
 
     result = asyncio.run(driver.run(spec, rep))
@@ -101,6 +101,7 @@ def test_real_sandbox_run(local_repo):
     assert ("+", "SECRET = os.environ['JWT_SECRET']") in [(l.op, l.text) for l in result.diff[0].lines]
     # destroyed afterwards
     assert _client.containers.list(all=True, filters={"label": LABEL}) == []
+    assert _client.volumes.list(filters={"label": LABEL}) == []
 
 
 def test_cancelled_run_still_destroys_its_container(local_repo):
@@ -110,7 +111,7 @@ def test_cancelled_run_still_destroys_its_container(local_repo):
 
     settings = Settings(_env_file=None, sandbox_driver="docker")
     driver = DockerDriver(settings, SlowLLM([]))
-    spec = RunSpec("EXP-TEST", 2, "https://example.com/x/y", "t", "m", SandboxLimits(timeout_s=60, memory_mb=256, cpus=0.5, network="none"))
+    spec = RunSpec("EXP-TEST", 2, "https://github.com/x/y", "t", "m", SandboxLimits(timeout_s=60, memory_mb=256, cpus=0.5, network="none"))
 
     async def go():
         with pytest.raises(TimeoutError):
@@ -118,3 +119,32 @@ def test_cancelled_run_still_destroys_its_container(local_repo):
 
     asyncio.run(go())
     assert _client.containers.list(all=True, filters={"label": LABEL}) == []
+    assert _client.volumes.list(filters={"label": LABEL}) == []
+
+
+def test_demo_repo_installs_deps_offline_agent_can_use_them():
+    """Setup container installs requirements.txt with internet; the agent's box has none but can import them."""
+    llm = ScriptedLLM(
+        [
+            {"role": "assistant", "tool_calls": [call("run_command", "c1", command="python -c 'import dateutil; print(\"dateutil\", dateutil.__version__)'")]},
+            {"role": "assistant", "tool_calls": [call("run_command", "c2", command="pip download six -q -d /tmp/x 2>&1 | tail -1; echo net=$?")]},
+            {"role": "assistant", "tool_calls": [call("run_command", "c3", command="pytest -q 2>&1 | tail -1")]},
+            {"role": "assistant", "content": "Looked around."},
+        ]
+    )
+    settings = Settings(_env_file=None, sandbox_driver="docker", command_timeout_s=60, setup_timeout_s=120)
+    driver = DockerDriver(settings, llm)
+    spec = RunSpec("EXP-TEST", 3, "demo", "t", "m", SandboxLimits(timeout_s=240, memory_mb=512, cpus=1, network="none"))
+    rep = Reporter()
+
+    result = asyncio.run(driver.run(spec, rep))
+
+    assert result.outcome == "pass", rep.logs
+    deps, net, tests = llm.tool_results
+    assert "dateutil 2.9.0" in deps
+    assert "dateutil" not in net and ("error" in net.lower() or "fail" in net.lower())  # still no network
+    assert "failed" in tests and "passed" in tests  # the demo suite runs (and fails on purpose)
+    assert rep.steps[0] == "Install dependencies"
+    assert result.diff == []  # .venv is not part of the diff
+    assert _client.containers.list(all=True, filters={"label": LABEL}) == []
+    assert _client.volumes.list(filters={"label": LABEL}) == []

@@ -31,6 +31,8 @@ def build_driver(settings: Settings, llm: LLMClient) -> SandboxDriver:
         ) from err
     except DockerException as err:
         raise SandboxUnavailable(f"SANDBOX_DRIVER=docker but Docker is not reachable: {err}") from err
+    except RuntimeError as err:
+        raise SandboxUnavailable(str(err)) from err
     if removed := driver.remove_orphans():
         log.warning("removed %d sandbox container(s) left over from a previous run", removed)
     return driver

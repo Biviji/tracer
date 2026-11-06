@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     #: Spend guard for a public deployment: total runs (all experiments) allowed per rolling hour.
     #: 0 = unlimited.
     max_runs_per_hour: int = Field(default=0, ge=0)
+    #: Same, per visitor (client IP), so one person can't use up the whole hourly budget. 0 = off.
+    max_runs_per_client_per_hour: int = Field(default=0, ge=0)
     sandbox_timeout_s: int = Field(default=300, ge=1)
     sandbox_memory_mb: int = Field(default=1024, ge=64)
     sandbox_cpus: float = Field(default=1.0, gt=0)
@@ -56,12 +58,28 @@ class Settings(BaseSettings):
     command_timeout_s: int = Field(default=60, ge=1)
     clone_timeout_s: int = Field(default=90, ge=5)
     max_repo_mb: int = Field(default=200, ge=1)
+    #: Hosts repos may be cloned from (comma-separated; "*" = any public https host).
+    #: Keeps the clone step from being pointed at internal addresses.
+    allowed_repo_hosts: str = "github.com,gitlab.com,bitbucket.org,codeberg.org"
+    #: Built-in demo project, used when the repo field is "demo".
+    demo_repo_dir: Path = Path(__file__).resolve().parents[2] / "demo-repo"
+    #: Install the repo's dependencies (pip / npm) in a short-lived setup container that has
+    #: internet, before the agent starts in a fresh container with none.
+    sandbox_install_deps: bool = True
+    setup_timeout_s: int = Field(default=150, ge=10)
+    #: Container runtime for sandboxes: "" = Docker's default (runc); "runsc" = gVisor,
+    #: a user-space kernel that adds a second wall between agent code and the host.
+    sandbox_runtime: str = ""
 
     log_level: str = "INFO"
 
     @property
     def model_ids(self) -> list[str]:
         return [m.strip() for m in self.llm_models.split(",") if m.strip()]
+
+    @property
+    def repo_hosts(self) -> set[str]:
+        return {h.strip().lower() for h in self.allowed_repo_hosts.split(",") if h.strip()}
 
 
 @lru_cache
