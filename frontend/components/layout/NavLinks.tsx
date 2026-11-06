@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const ITEMS = [
-  { href: "/", label: "EXPERIMENTS", match: (p: string) => p === "/" || p.startsWith("/experiments") || p.startsWith("/new") },
+  { href: "/experiments", label: "EXPERIMENTS", match: (p: string) => p.startsWith("/experiments") || p.startsWith("/new") },
   { href: "/overview", label: "OVERVIEW", match: (p: string) => p.startsWith("/overview") },
   { href: "/compare", label: "COMPARE", match: (p: string) => p.startsWith("/compare") },
   { href: "/reports", label: "REPORTS", match: (p: string) => p.startsWith("/reports") },

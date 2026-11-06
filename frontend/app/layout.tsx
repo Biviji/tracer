@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Archivo, DM_Mono } from "next/font/google";
-import { Rail } from "@/components/layout/Rail";
 import "./globals.css";
 
 const archivo = Archivo({
@@ -24,12 +23,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${archivo.variable} ${dmMono.variable}`}>
-      <body>
-        <div className="grid min-h-dvh grid-cols-1 bg-ink desk:grid-cols-[200px_1fr]">
-          <Rail />
-          <main className="min-w-0 bg-paper px-4 pt-[22px] pb-10 sm:px-5">{children}</main>
-        </div>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
