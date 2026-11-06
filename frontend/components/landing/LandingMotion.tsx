@@ -15,8 +15,8 @@ export function LandingMotion() {
       return;
     }
 
-    const blocks = Array.from(root.querySelectorAll(".statrow, .sec .sechead, .problemlede, .steps, .why, .usecases, .flow, .finalcta"));
-    for (const group of root.querySelectorAll(".steps, .why, .usecases, .flow, .statrow")) {
+    const blocks = Array.from(root.querySelectorAll(".statrow, .sec .sechead, .steps, .why, .flow, .finalcta"));
+    for (const group of root.querySelectorAll(".steps, .why, .flow, .statrow")) {
       let i = 0;
       for (const kid of Array.from(group.children) as HTMLElement[]) {
         if (kid.classList.contains("farrow")) continue;

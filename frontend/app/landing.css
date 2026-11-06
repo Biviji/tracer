@@ -153,15 +153,6 @@
 .landing .feat h3 { font-size: 17px; text-transform: uppercase; margin-bottom: 9px; }
 .landing .feat p { color: var(--muted); font-size: 12.5px; line-height: 1.65; max-width: 46ch; }
 
-/* the problem */
-.landing .problemlede { font-size: clamp(16px, 2.2vw, 21px); line-height: 1.55; max-width: 62ch; margin-bottom: 28px; }
-.landing .problemlede strong { color: var(--red); font-weight: 700; }
-.landing .usecases { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); border: 2px solid var(--line); border-top: none; }
-.landing .usecases li { padding: 16px 18px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
-.landing .usecases li:first-child { border-left: none; }
-.landing .usecases b { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
-.landing .usecases span { color: var(--muted); font-size: 12px; line-height: 1.5; }
-
 /* architecture flow */
 .landing .flowband { background: var(--card); border-block: 2px solid var(--line); }
 .landing .flow { display: flex; align-items: stretch; flex-wrap: wrap; padding-block: 6px; }
@@ -246,9 +237,6 @@ html:has(.landing) { scroll-behavior: smooth; }
   .landing .statrow > div:nth-child(n + 3) { border-top: 2px solid var(--line); }
   .landing .steps { grid-template-columns: 1fr 1fr; }
   .landing .steps > div:nth-child(odd) { border-left: none; }
-  .landing .usecases { grid-template-columns: 1fr 1fr; }
-  .landing .usecases li:nth-child(odd) { border-left: none; }
-  .landing .usecases li:nth-child(n + 3) { border-top: 2px solid var(--line); }
   .landing .steps > div:nth-child(n + 3) { border-top: 2px solid var(--line); }
   .landing .flow { flex-direction: column; }
   .landing .farrow { transform: rotate(90deg); padding: 4px 0; }
@@ -266,9 +254,6 @@ html:has(.landing) { scroll-behavior: smooth; }
   .landing .steps > div { border-left: none; border-top: 2px solid var(--line); }
   .landing .steps > div:first-child { border-top: none; }
   .landing .why { grid-template-columns: 1fr; }
-  .landing .usecases { grid-template-columns: 1fr; }
-  .landing .usecases li { border-left: none; border-top: 2px solid var(--line); }
-  .landing .usecases li:first-child { border-top: none; }
   .landing .feat { border-left: none; }
   .landing .feat:nth-child(2) { border-top: 2px solid var(--line); }
   .landing .footmain { grid-template-columns: 1fr; }
