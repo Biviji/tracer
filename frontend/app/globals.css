@@ -155,6 +155,38 @@
   animation: page-enter 0.38s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
+/* ---- workflow demo modal ---- */
+.demo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+.demo-modal-bg {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.66);
+  backdrop-filter: blur(3px);
+  border: 0;
+  cursor: default;
+  animation: tour-fade 0.25s ease both;
+}
+.demo-modal-card {
+  position: relative;
+  width: min(920px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--accent);
+  animation: tour-pop 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
 /* ---- onboarding tour ---- */
 .tour {
   position: fixed;

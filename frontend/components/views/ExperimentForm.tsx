@@ -2,8 +2,8 @@
 
 import { Spinner } from "@/components/ui/StateBlock";
 import { Tour, useFirstVisitTour, type TourStep } from "@/components/ui/Tour";
+import { WorkflowDemoButton } from "@/components/WorkflowDemo";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
@@ -112,9 +112,9 @@ export function ExperimentForm() {
           </p>
           <p className="mt-2 text-[12px]">
             New to TRACE?{" "}
-            <Link href="/guide" className="underline decoration-accent decoration-2 underline-offset-2">
-              Take the 1-minute guide
-            </Link>{" "}
+            <WorkflowDemoButton className="underline decoration-accent decoration-2 underline-offset-2">
+              See how it works in 5 steps
+            </WorkflowDemoButton>{" "}
             or{" "}
             <button
               type="button"

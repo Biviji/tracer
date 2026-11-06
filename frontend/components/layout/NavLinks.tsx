@@ -24,11 +24,7 @@ const ITEMS = [
     label: "REPORTS",
     match: (p: string) => p.startsWith("/reports"),
   },
-  {
-    href: "/guide",
-    label: "GUIDE",
-    match: (p: string) => p.startsWith("/guide"),
-  },
+
 ] as const;
 
 /** Fixed-size bar that grows while this link's page is loading. */

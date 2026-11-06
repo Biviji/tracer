@@ -58,6 +58,10 @@
 .landing .navlinks { display: flex; align-items: center; gap: 22px; letter-spacing: 0.08em; font-size: 12px; }
 .landing .navlinks a { color: var(--muted); position: relative; }
 .landing .navlinks a:hover { color: var(--ink); }
+.landing .navlinks button, .landing .footcol button { background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; color: var(--muted); cursor: pointer; }
+.landing .navlinks button:hover, .landing .footcol button:hover { color: var(--ink); }
+.landing .footcol button { color: var(--ink); font-size: 12.5px; }
+.landing .footcol button:hover { color: var(--red); }
 .landing .navlinks a:not(.navbtn)::after {
   content: ""; position: absolute; left: 0; bottom: -3px; height: 2px; width: 0; background: var(--red); transition: width 0.22s ease;
 }
@@ -86,34 +90,33 @@
 }
 @keyframes hb-pan { to { transform: translate(60px, 60px); } }
 
-.landing .herobg .rings { position: absolute; right: 8%; top: 18%; width: 0; height: 0; }
-.landing .herobg .rings i {
-  position: absolute; left: -170px; top: -170px; width: 340px; height: 340px;
-  border: 2px solid var(--red); opacity: 0; transform: scale(0.15);
-  animation: hb-ring 6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
-}
-.landing .herobg .rings i:nth-child(2) { animation-delay: -2s; }
-.landing .herobg .rings i:nth-child(3) { animation-delay: -4s; }
-.landing .herobg .rings b {
-  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; background: var(--red);
-  animation: hb-core 3s ease-in-out infinite;
-}
-@keyframes hb-ring {
-  0% { opacity: 0; transform: scale(0.1) rotate(0deg); }
-  15% { opacity: 0.35; }
-  100% { opacity: 0; transform: scale(1) rotate(45deg); }
-}
-@keyframes hb-core { 50% { transform: rotate(90deg) scale(0.7); } }
+/* drifting colour glows */
+.landing .herobg .orb { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.55; will-change: transform; }
+.landing .herobg .o1 { width: 460px; height: 460px; right: -80px; top: -60px; background: radial-gradient(circle, color-mix(in srgb, var(--red) 70%, transparent), transparent 70%); animation: hb-drift1 18s ease-in-out infinite alternate; }
+.landing .herobg .o2 { width: 380px; height: 380px; right: 22%; top: 34%; background: radial-gradient(circle, color-mix(in srgb, #d9a066 45%, transparent), transparent 70%); opacity: 0.35; animation: hb-drift2 22s ease-in-out infinite alternate; }
+.landing .herobg .o3 { width: 300px; height: 300px; right: 4%; bottom: 0; background: radial-gradient(circle, color-mix(in srgb, #6a7bd8 40%, transparent), transparent 70%); opacity: 0.25; animation: hb-drift1 26s ease-in-out infinite alternate-reverse; }
+@keyframes hb-drift1 { to { transform: translate(-90px, 70px) scale(1.15); } }
+@keyframes hb-drift2 { to { transform: translate(80px, -60px) scale(0.85); } }
 
-.landing .herobg .fsq { position: absolute; animation: hb-float 16s ease-in-out infinite; }
-.landing .herobg .fsq.fill { background: var(--red); opacity: 0.55; }
-.landing .herobg .fsq.ink { background: var(--ink); opacity: 0.18; }
-.landing .herobg .fsq.line { border: 2px solid var(--ink); opacity: 0.22; }
-@keyframes hb-float {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  25% { transform: translate(18px, -26px) rotate(45deg); }
-  50% { transform: translate(-10px, -48px) rotate(90deg); }
-  75% { transform: translate(-22px, -18px) rotate(135deg); }
+/* one task fanning out into diverging runs */
+.landing .herobg .fan { position: absolute; right: 0; top: 0; height: 100%; width: min(46%, 640px); overflow: visible; color: var(--ink); }
+.landing .herobg .fan .trail { fill: none; stroke: var(--ink); stroke-width: 1.2; opacity: 0.22; stroke-dasharray: 1400; stroke-dashoffset: 1400; animation: hb-draw 9s cubic-bezier(0.6, 0, 0.2, 1) infinite; }
+.landing .herobg .fan .fail .trail { stroke: var(--red); opacity: 0.5; }
+.landing .herobg .fan .end { fill: var(--ink); opacity: 0.35; }
+.landing .herobg .fan .fail .end { fill: var(--red); opacity: 0.9; }
+.landing .herobg .fan .pulse { color: var(--ink); }
+.landing .herobg .fan .fail .pulse { color: var(--red); }
+.landing .herobg .fan .origin { fill: var(--red); }
+.landing .herobg .fan .ring { fill: none; stroke: var(--ink); stroke-width: 1; opacity: 0; transform-box: fill-box; transform-origin: center; animation: hb-ripple 6s ease-out infinite; }
+@keyframes hb-draw {
+  0% { stroke-dashoffset: 1400; }
+  45%, 80% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -1400; }
+}
+@keyframes hb-ripple {
+  0% { opacity: 0; transform: scale(0.3); }
+  20% { opacity: 0.25; }
+  100% { opacity: 0; transform: scale(1.4); }
 }
 
 .landing .herobg .scan {
@@ -229,7 +232,6 @@
 
 .landing .frame {
   position: relative; border: 1px solid var(--line); padding: clamp(22px, 4vw, 48px); overflow: hidden; isolation: isolate;
-  perspective: 1400px;
   background:
     radial-gradient(70% 80% at 85% 95%, color-mix(in srgb, var(--red) 42%, transparent), transparent 62%),
     radial-gradient(55% 60% at 10% 10%, color-mix(in srgb, #d9a066 22%, transparent), transparent 65%),
@@ -241,10 +243,10 @@
 .landing .frame::before {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E"),
     radial-gradient(circle, color-mix(in srgb, var(--ink) 16%, transparent) 1px, transparent 1.4px);
-  background-size: 180px 180px, 16px 16px;
-  mix-blend-mode: overlay; opacity: 0.55;
+  background-size: 160px 160px, 16px 16px;
+  mix-blend-mode: overlay; opacity: 0.8;
 }
 /* slow drifting light */
 .landing .frame::after {
@@ -255,23 +257,7 @@
 @keyframes lv-sweep { to { transform: rotate(360deg); } }
 .landing .chapter:hover .frame { border-color: color-mix(in srgb, var(--red) 60%, var(--line)); }
 
-/* the mini window sits tilted in 3D and straightens on hover */
-.landing .frame > .win, .landing .frame > .cord {
-  transform: rotateX(9deg) rotateY(-12deg) rotateZ(1.5deg);
-  transform-origin: 60% 50%;
-  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-.landing .chapter:nth-child(even) .frame > .win, .landing .chapter:nth-child(even) .frame > .cord {
-  transform: rotateX(9deg) rotateY(12deg) rotateZ(-1.5deg);
-}
-.landing .chapter:hover .frame > :is(.win, .cord) { transform: rotateX(0) rotateY(0) rotateZ(0) translateY(-4px); }
-.landing .frame .win {
-  box-shadow:
-    14px 14px 0 -2px color-mix(in srgb, var(--paper) 85%, transparent),
-    14px 14px 0 0 color-mix(in srgb, var(--line) 80%, transparent),
-    0 40px 70px -24px rgba(0, 0, 0, 0.7);
-}
-.landing .frame .cord .win { box-shadow: 0 30px 50px -22px rgba(0, 0, 0, 0.7); }
+.landing .frame .win { box-shadow: 0 30px 60px -28px rgba(0, 0, 0, 0.7); }
 .landing .win { background: var(--paper); border: 2px solid var(--line); font-size: 11.5px; box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.45); min-width: 0; }
 .landing .wbar { display: flex; align-items: center; gap: 10px; border-bottom: 2px solid var(--line); padding: 8px 12px; color: var(--muted); letter-spacing: 0.1em; font-size: 10px; text-transform: uppercase; }
 .landing .wdots { display: inline-flex; gap: 5px; }
@@ -464,14 +450,14 @@ html:has(.landing):not(.lenis) { scroll-behavior: smooth; }
   html:has(.landing) { scroll-behavior: auto; }
   .landing .eyebrow .dot { animation: none; }
   .landing .herobg *, .landing .hero > * { animation: none !important; }
-  .landing .herobg .scan { display: none; }
+  .landing .herobg .scan, .landing .herobg .pulse { display: none; }
+  .landing .herobg .fan .trail { stroke-dashoffset: 0; }
   .landing :is(.reveal, .stag) { opacity: 1 !important; transform: none !important; transition: none !important; }
   .landing .dcell .b i { transition: none; width: 100%; }
 }
 
 @media (max-width: 820px) {
-  .landing .herobg .rings { right: 12%; top: 10%; }
-  .landing .herobg .rings i { left: -110px; top: -110px; width: 220px; height: 220px; }
+  .landing .herobg .fan { width: 100%; opacity: 0.6; }
   .landing .hide-sm { display: none; }
   .landing .herogrid { grid-template-columns: 1fr; align-items: start; gap: 24px; }
   .landing .demogrid { grid-template-columns: 1fr 1fr; }

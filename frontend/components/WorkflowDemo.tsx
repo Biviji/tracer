@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { DottedRule, PageHeader } from "../ui/PageHeader";
+import { createPortal } from "react-dom";
 
-/** A five-step walkthrough of what happens when you run an experiment. Mock visuals, no API calls. */
+/** A five-slide walkthrough of the workflow, shown as a modal. Mock visuals, no API calls. */
 
 type Step = {
   label: string;
@@ -208,118 +208,125 @@ const STEPS: Step[] = [
   },
 ];
 
-const GLOSSARY: [string, string][] = [
-  ["Run", "One attempt by the agent at your task, in its own sandbox."],
-  ["Sandbox", "A disposable container with no network or secrets, deleted after the run."],
-  ["Reliability", "Share of runs that passed. Only meaningful with several runs."],
-  ["Diff", "The code a run changed, exactly as git sees it."],
-];
-
-export function GuideView() {
+export function WorkflowDemo({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [i, setI] = useState(0);
   const last = STEPS.length - 1;
   const go = useCallback((n: number) => setI(Math.max(0, Math.min(last, n))), [last]);
+  const close = useCallback(() => {
+    setI(0);
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      if (el.closest("input, textarea")) return;
+      if (e.key === "Escape") close();
       if (e.key === "ArrowRight") go(i + 1);
       if (e.key === "ArrowLeft") go(i - 1);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [i, go]);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open, i, go, close]);
 
+  if (!open || typeof document === "undefined") return null;
   const s = STEPS[i];
-  return (
-    <>
-      <PageHeader
-        eyebrow="GUIDE · 1 MINUTE"
-        title={["HOW TRACE", "WORKS"]}
-        lede="What happens from the moment you press Launch to the report — before you run anything."
-      />
-      <DottedRule />
 
-      <div className="grid max-w-[1000px] gap-6 lg:grid-cols-[220px_1fr]">
-        <ol className="flex gap-1.5 overflow-x-auto lg:flex-col" aria-label="Steps">
-          {STEPS.map((st, n) => (
-            <li key={st.label} className="shrink-0">
+  return createPortal(
+    <div className="demo-modal" role="dialog" aria-modal="true" aria-labelledby="wd-title" data-lenis-prevent>
+      <button type="button" className="demo-modal-bg" aria-label="Close" onClick={close} />
+      <div className="demo-modal-card">
+        <div className="flex items-center justify-between gap-3 border-b-2 border-line px-5 py-3 text-[10.5px] tracking-[.16em] text-muted">
+          <span>
+            <span className="text-accent">●</span> HOW TRACE WORKS · {i + 1} / {STEPS.length}
+          </span>
+          <button type="button" onClick={close} className="tracking-[.12em] hover:text-ink">
+            CLOSE ✕
+          </button>
+        </div>
+        <div className="h-[3px] bg-line">
+          <div
+            className="h-full bg-accent transition-[width] duration-500"
+            style={{ width: `${((i + 1) / STEPS.length) * 100}%` }}
+          />
+        </div>
+
+        <div key={i} className="page-enter grid gap-6 p-5 md:grid-cols-[1fr_1.1fr] md:p-7">
+          <div className="min-w-0">
+            <div className="text-[11px] tracking-[.16em] text-accent">
+              STEP {i + 1} · {s.label}
+            </div>
+            <h2 id="wd-title" className="mt-2 mb-3 text-[clamp(24px,3.4vw,34px)] leading-none uppercase">
+              {s.title}
+            </h2>
+            <p className="text-[13px] leading-relaxed text-muted">{s.body}</p>
+            <ul className="mt-4 flex flex-col gap-1.5 text-[12px] leading-snug">
+              {s.see.map((x) => (
+                <li key={x} className="flex gap-2">
+                  <span className="text-accent">→</span>
+                  {x}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="min-w-0 border-2 border-line bg-card p-4 [background-image:radial-gradient(120%_90%_at_100%_100%,color-mix(in_srgb,var(--accent)_20%,transparent),transparent_60%)]">
+            {s.visual}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 border-t-2 border-line px-5 py-3.5">
+          <span className="flex gap-1.5" aria-hidden>
+            {STEPS.map((st, n) => (
+              <button
+                key={st.label}
+                type="button"
+                tabIndex={-1}
+                onClick={() => go(n)}
+                className={`h-2 transition-all ${n === i ? "w-6 bg-accent" : "w-2 bg-line hover:bg-muted"}`}
+              />
+            ))}
+          </span>
+          <span className="ml-auto flex gap-2">
+            {i > 0 && (
+              <button type="button" className="btn-ghost py-2" onClick={() => go(i - 1)}>
+                ← BACK
+              </button>
+            )}
+            {i < last ? (
               <button
                 type="button"
-                onClick={() => go(n)}
-                aria-current={n === i ? "step" : undefined}
-                className={`flex w-full items-center gap-2.5 border-2 px-3 py-2.5 text-left text-[11px] tracking-[.1em] ${
-                  n === i ? "border-ink bg-ink text-paper" : n < i ? "border-line text-ink" : "border-line text-muted"
-                }`}
+                autoFocus
+                className="btn-ghost border-ink bg-ink py-2 text-paper"
+                onClick={() => go(i + 1)}
               >
-                <span className={`font-display font-extrabold ${n === i ? "text-accent" : ""}`}>
-                  {n < i ? "✓" : String(n + 1).padStart(2, "0")}
-                </span>
-                {st.label}
-              </button>
-            </li>
-          ))}
-        </ol>
-
-        <section className="min-w-0" aria-live="polite">
-          <div className="mb-4 h-[3px] bg-line">
-            <div
-              className="h-full bg-accent transition-[width] duration-500"
-              style={{ width: `${((i + 1) / STEPS.length) * 100}%` }}
-            />
-          </div>
-
-          <div key={i} className="page-enter grid gap-6 md:grid-cols-2">
-            <div>
-              <div className="text-[11px] tracking-[.16em] text-accent">
-                STEP {i + 1} / {STEPS.length} · {s.label}
-              </div>
-              <h2 className="mt-2 mb-3 text-[clamp(24px,3.4vw,34px)] leading-none uppercase">{s.title}</h2>
-              <p className="text-[13px] leading-relaxed text-muted">{s.body}</p>
-              <div className="mt-4 text-[10px] tracking-[.16em] text-muted">WHAT YOU&apos;LL SEE</div>
-              <ul className="mt-2 flex flex-col gap-1.5 text-[12px] leading-snug">
-                {s.see.map((x) => (
-                  <li key={x} className="flex gap-2">
-                    <span className="text-accent">→</span>
-                    {x}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="min-w-0 border-2 border-line bg-card p-4 [background-image:radial-gradient(120%_90%_at_100%_100%,color-mix(in_srgb,var(--accent)_20%,transparent),transparent_60%)]">
-              {s.visual}
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center gap-2.5">
-            <button type="button" className="btn-ghost" onClick={() => go(i - 1)} disabled={i === 0}>
-              ← BACK
-            </button>
-            {i < last ? (
-              <button type="button" className="btn-ghost border-ink bg-ink text-paper" onClick={() => go(i + 1)}>
                 NEXT →
               </button>
             ) : (
-              <Link href="/new" className="btn-primary w-auto min-w-[260px]">
+              <Link href="/new" onClick={close} className="btn-primary w-auto py-2.5 text-[15px]">
                 TRY IT WITH THE DEMO <span aria-hidden>→</span>
               </Link>
             )}
-            <span className="ml-auto hidden text-[10.5px] tracking-[.1em] text-muted sm:inline">← → KEYS WORK TOO</span>
-          </div>
-        </section>
+          </span>
+        </div>
       </div>
+    </div>,
+    document.body,
+  );
+}
 
-      <DottedRule />
-      <h3 className="mb-3 text-lg uppercase">Words you&apos;ll see</h3>
-      <dl className="grid max-w-[1000px] gap-px border-2 border-line bg-line sm:grid-cols-2">
-        {GLOSSARY.map(([t, d]) => (
-          <div key={t} className="bg-paper p-3.5">
-            <dt className="font-display font-extrabold tracking-[.03em] uppercase">{t}</dt>
-            <dd className="mt-1 text-[12px] text-muted">{d}</dd>
-          </div>
-        ))}
-      </dl>
+/** A button that opens the walkthrough; usable from server components. */
+export function WorkflowDemoButton({ className, children }: { className?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>
+        {children}
+      </button>
+      <WorkflowDemo open={open} onClose={() => setOpen(false)} />
     </>
   );
 }

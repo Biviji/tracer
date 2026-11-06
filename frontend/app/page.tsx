@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { HeroBackdrop } from "@/components/landing/HeroBackdrop";
+import { WorkflowDemoButton } from "@/components/WorkflowDemo";
 import { LandingMotion, LiveStatus } from "@/components/landing/LandingMotion";
 import {
   CompareVisual,
@@ -136,44 +138,6 @@ const FEATURES = [
   },
 ];
 
-/** Decorative, CSS-animated: drifting grid, blast-radius rings, floating squares, a scan line. */
-const SQUARES = [
-  { x: "6%", y: "62%", s: 14, d: 0, k: "fill" },
-  { x: "88%", y: "14%", s: 22, d: -4, k: "line" },
-  { x: "72%", y: "48%", s: 10, d: -9, k: "ink" },
-  { x: "94%", y: "70%", s: 16, d: -2, k: "fill" },
-  { x: "52%", y: "8%", s: 9, d: -6, k: "line" },
-  { x: "38%", y: "86%", s: 12, d: -11, k: "ink" },
-  { x: "18%", y: "20%", s: 8, d: -7, k: "line" },
-  { x: "64%", y: "78%", s: 18, d: -13, k: "line" },
-];
-
-const HeroBackdrop = () => (
-  <div className="herobg" aria-hidden>
-    <div className="grid" />
-    <div className="rings">
-      <i />
-      <i />
-      <i />
-      <b />
-    </div>
-    {SQUARES.map((q, i) => (
-      <span
-        key={i}
-        className={`fsq ${q.k}`}
-        style={{
-          left: q.x,
-          top: q.y,
-          width: q.s,
-          height: q.s,
-          animationDelay: `${q.d}s`,
-        }}
-      />
-    ))}
-    <div className="scan" />
-  </div>
-);
-
 export default function LandingPage() {
   return (
     <div className="landing">
@@ -183,9 +147,7 @@ export default function LandingPage() {
             <Brand />
           </Link>
           <nav className="navlinks" aria-label="Landing">
-            <Link href="/guide" className="hide-sm">
-              GUIDE
-            </Link>
+            <WorkflowDemoButton className="hide-sm">WALKTHROUGH</WorkflowDemoButton>
             <a href="#how" className="hide-sm">
               HOW IT WORKS
             </a>
@@ -409,7 +371,7 @@ export default function LandingPage() {
               <h4>Learn</h4>
               <ul>
                 <li>
-                  <Link href="/guide">Step-by-step guide</Link>
+                  <WorkflowDemoButton>Walkthrough</WorkflowDemoButton>
                 </li>
                 <li>
                   <a href="#how">How it works</a>
