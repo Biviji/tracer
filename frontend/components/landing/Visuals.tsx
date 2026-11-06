@@ -36,9 +36,9 @@ export function TaskVisual() {
       <div className="frow">
         <span className="fk">RUNS</span>
         <span className="chips">
-          <span className="chip">1</span>
           <span className="chip">3</span>
           <span className="chip on">5</span>
+          <span className="chip">8</span>
           <span className="chip">10</span>
         </span>
       </div>

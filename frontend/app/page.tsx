@@ -87,7 +87,7 @@ const STEPS = [
     l: "THE TASK",
     t: "Give one task",
     p: "Point TRACE at a public repo, or the built-in demo, describe the job, pick a model on Vultr Serverless Inference and how many runs to spawn.",
-    specs: ["GitHub · GitLab · Bitbucket · Codeberg", "1 to 10 runs"],
+    specs: ["GitHub · GitLab · Bitbucket · Codeberg", "3 to 10 runs"],
     v: <TaskVisual />,
   },
   {

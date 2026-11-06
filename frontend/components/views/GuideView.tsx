@@ -72,9 +72,9 @@ const STEPS: Step[] = [
         <div className="grid grid-cols-[64px_1fr] items-center gap-2">
           <span className="text-[9.5px] tracking-[.14em] text-muted">RUNS</span>
           <span className="flex gap-1.5">
-            <Tag>1</Tag>
             <Tag>3</Tag>
             <Tag on>5</Tag>
+            <Tag>8</Tag>
             <Tag>10</Tag>
           </span>
         </div>

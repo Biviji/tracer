@@ -1,6 +1,7 @@
 "use client";
 
 import { Spinner } from "@/components/ui/StateBlock";
+import { Tour, useFirstVisitTour, type TourStep } from "@/components/ui/Tour";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -19,6 +20,38 @@ const fieldInput =
   "w-full border-2 border-line bg-card px-[13px] py-3 text-[13px] text-ink focus:outline-3 focus:-outline-offset-1 focus:outline-accent";
 
 /** Experiment config. On submit the orchestrator spawns N sandboxes and we jump to the live view. */
+const TOUR: TourStep[] = [
+  {
+    title: "Welcome to TRACE",
+    body: "TRACE runs the same coding task many times, each in its own locked sandbox, and shows how often the agent gets it right. Here's the form in five quick steps.",
+  },
+  {
+    target: "repo",
+    title: "1 · Pick a repo",
+    body: "Keep “demo” for a built-in buggy Python project, or paste a public GitHub / GitLab / Bitbucket / Codeberg URL.",
+  },
+  {
+    target: "task",
+    title: "2 · Describe the task",
+    body: "Plain English, like you'd tell a teammate. Every run gets exactly this text — add rules such as “don't change the tests”.",
+  },
+  {
+    target: "model",
+    title: "3 · Choose the agent",
+    body: "The model that drives the agent, on Vultr Serverless Inference. To compare models, run the same task once per model.",
+  },
+  {
+    target: "runs",
+    title: "4 · How many runs",
+    body: "Each run is a separate sandbox. One run proves nothing — 5 gives a first reliability number.",
+  },
+  {
+    target: "launch",
+    title: "5 · Launch",
+    body: "You'll watch every run live, then get a report: pass rate, each run's answer and the code it changed. Sandboxes are destroyed after.",
+  },
+];
+
 const DEMO_REPO = "demo";
 const DEMO_TASK = "Run the test suite, find why tests fail and fix the code. Don't change the tests.";
 
@@ -26,6 +59,7 @@ export function ExperimentForm() {
   const router = useRouter();
   const agents = useApi("agents", api.listAgents);
 
+  const tour = useFirstVisitTour("trace-tour-new-v1");
   const [repo, setRepo] = useState(DEMO_REPO);
   const [task, setTask] = useState(DEMO_TASK);
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -79,8 +113,16 @@ export function ExperimentForm() {
           <p className="mt-2 text-[12px]">
             New to TRACE?{" "}
             <Link href="/guide" className="underline decoration-accent decoration-2 underline-offset-2">
-              Take the 1-minute guide first →
-            </Link>
+              Take the 1-minute guide
+            </Link>{" "}
+            or{" "}
+            <button
+              type="button"
+              onClick={tour.start}
+              className="underline decoration-accent decoration-2 underline-offset-2"
+            >
+              replay the tour
+            </button>
           </p>
           {!isDemo && (
             <button
@@ -96,7 +138,7 @@ export function ExperimentForm() {
           )}
         </aside>
 
-        <div className="mb-[18px]">
+        <div className="mb-[18px]" data-tour="repo">
           <label htmlFor="repo" className={fieldLabel}>
             Target repository
           </label>
@@ -115,7 +157,7 @@ export function ExperimentForm() {
           </p>
         </div>
 
-        <div className="mb-[18px]">
+        <div className="mb-[18px]" data-tour="task">
           <label htmlFor="task" className={fieldLabel}>
             Task given to the agent
           </label>
@@ -139,7 +181,7 @@ export function ExperimentForm() {
           )}
         </div>
 
-        <fieldset className="mb-[18px]">
+        <fieldset className="mb-[18px]" data-tour="model">
           <legend className={fieldLabel}>Agent under test · Vultr Serverless Inference</legend>
           <p className="-mt-1 mb-2 text-[11px] text-muted">
             The model that drives the agent. To compare models, run the same task once per model.
@@ -182,7 +224,7 @@ export function ExperimentForm() {
           )}
         </fieldset>
 
-        <fieldset className="mb-[18px]">
+        <fieldset className="mb-[18px]" data-tour="runs">
           <legend className={fieldLabel}>Number of isolated runs</legend>
           <p className="-mt-1 mb-2 text-[11px] text-muted">
             One run tells you nothing about reliability. 5 is a good start; 10 gives a steadier number but takes longer.
@@ -219,7 +261,7 @@ export function ExperimentForm() {
           </div>
         </div>
 
-        <button type="submit" className="btn-primary" disabled={!canSubmit}>
+        <button type="submit" className="btn-primary" disabled={!canSubmit} data-tour="launch">
           {submitting ? (
             <>
               <span className="flex items-center gap-3">
@@ -239,6 +281,7 @@ export function ExperimentForm() {
           </p>
         )}
       </form>
+      <Tour steps={TOUR} open={tour.open} onClose={tour.close} />
     </>
   );
 }
