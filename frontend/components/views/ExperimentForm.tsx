@@ -16,17 +16,21 @@ const fieldInput =
   "w-full border-2 border-line bg-card px-[13px] py-3 text-[13px] text-ink focus:outline-3 focus:-outline-offset-1 focus:outline-accent";
 
 /** Experiment config. On submit the orchestrator spawns N sandboxes and we jump to the live view. */
+const DEMO_REPO = "demo";
+const DEMO_TASK = "Run the test suite, find why tests fail and fix the code. Don't change the tests.";
+
 export function ExperimentForm() {
   const router = useRouter();
   const agents = useApi("agents", api.listAgents);
 
-  const [repo, setRepo] = useState("demo");
-  const [task, setTask] = useState("Run the test suite, find why tests fail and fix the code. Don't change the tests.");
+  const [repo, setRepo] = useState(DEMO_REPO);
+  const [task, setTask] = useState(DEMO_TASK);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [runs, setRuns] = useState<number>(DEFAULT_RUN_COUNT);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const isDemo = repo.trim() === DEMO_REPO && task.trim() === DEMO_TASK;
   const selectedAgent = agentId ?? agents.data?.[0]?.id ?? null;
   const taskTooShort = task.trim().length < MIN_TASK_LENGTH;
   const canSubmit = !submitting && repo.trim() !== "" && !taskTooShort && selectedAgent !== null;
@@ -56,6 +60,28 @@ export function ExperimentForm() {
       <DottedRule />
 
       <form className="max-w-[720px]" onSubmit={onSubmit} noValidate>
+        <aside className="mb-[22px] border-2 border-accent bg-card p-4 text-[13px] leading-relaxed">
+          <p className="mb-1.5 text-[11px] uppercase tracking-[0.12em] text-accent">First time here? Try the demo</p>
+          <p>
+            To see how TRACE works without hunting for a repo, keep <code>demo</code> below and press{" "}
+            <b>Launch</b> at the bottom. It&apos;s a small Python shop library with four planted bugs and 9 failing tests —
+            one of them a trap that naive fixes fall into. Each run gets its own sandbox; results show up live in about
+            a minute, and you&apos;ll see which runs fixed it, which didn&apos;t, and what each one changed.
+          </p>
+          {!isDemo && (
+            <button
+              type="button"
+              className="mt-2 text-[12px] underline"
+              onClick={() => {
+                setRepo(DEMO_REPO);
+                setTask(DEMO_TASK);
+              }}
+            >
+              Reset to the demo
+            </button>
+          )}
+        </aside>
+
         <div className="mb-[18px]">
           <label htmlFor="repo" className={fieldLabel}>
             Target repository
@@ -70,8 +96,8 @@ export function ExperimentForm() {
             aria-describedby="repo-hint"
           />
           <p id="repo-hint" className="mt-1 text-[11px] text-muted">
-            A public repo on GitHub, GitLab, Bitbucket or Codeberg, or <code>demo</code> for the built-in buggy shop
-            library.
+            <code>demo</code> = the built-in buggy shop library. Or paste a public repo URL from GitHub, GitLab,
+            Bitbucket or Codeberg.
           </p>
         </div>
 
