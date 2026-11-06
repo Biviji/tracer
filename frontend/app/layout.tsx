@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Archivo, DM_Mono } from "next/font/google";
+import { Suspense } from "react";
+import "lenis/dist/lenis.css";
 import "./globals.css";
+import { SmoothScroll } from "@/components/motion/SmoothScroll";
 
 const archivo = Archivo({
   variable: "--font-archivo",
@@ -23,7 +26,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${archivo.variable} ${dmMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        <Suspense fallback={null}>
+          <SmoothScroll />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }

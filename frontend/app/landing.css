@@ -282,7 +282,7 @@
 .landing .btn-primary:hover span { transform: translateX(5px); }
 .landing :is(.steps > div, .feat) { transition: transform 0.18s ease, background 0.18s ease; }
 .landing :is(.steps > div, .feat):hover { transform: translateY(-3px); background: var(--card); }
-html:has(.landing) { scroll-behavior: smooth; }
+html:has(.landing):not(.lenis) { scroll-behavior: smooth; }
 .landing [id] { scroll-margin-top: 84px; }
 
 @media (prefers-reduced-motion: reduce) {
