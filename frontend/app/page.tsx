@@ -183,6 +183,9 @@ export default function LandingPage() {
             <Brand />
           </Link>
           <nav className="navlinks" aria-label="Landing">
+            <Link href="/guide" className="hide-sm">
+              GUIDE
+            </Link>
             <a href="#how" className="hide-sm">
               HOW IT WORKS
             </a>
@@ -405,6 +408,9 @@ export default function LandingPage() {
             <div className="footcol">
               <h4>Learn</h4>
               <ul>
+                <li>
+                  <Link href="/guide">Step-by-step guide</Link>
+                </li>
                 <li>
                   <a href="#how">How it works</a>
                 </li>

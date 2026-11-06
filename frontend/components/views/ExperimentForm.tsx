@@ -2,6 +2,7 @@
 
 import { Spinner } from "@/components/ui/StateBlock";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
@@ -75,6 +76,12 @@ export function ExperimentForm() {
             trap that naive fixes fall into. Each run gets its own sandbox; results show up live in about a minute, and
             you&apos;ll see which runs fixed it, which didn&apos;t, and what each one changed.
           </p>
+          <p className="mt-2 text-[12px]">
+            New to TRACE?{" "}
+            <Link href="/guide" className="underline decoration-accent decoration-2 underline-offset-2">
+              Take the 1-minute guide first →
+            </Link>
+          </p>
           {!isDemo && (
             <button
               type="button"
@@ -121,6 +128,10 @@ export function ExperimentForm() {
             required
             aria-invalid={taskTooShort}
           />
+          <p className="mt-1 text-[11px] text-muted">
+            Write it like you would for a teammate: what to fix and any rules (e.g. &ldquo;don&apos;t change the
+            tests&rdquo;). Every run gets exactly this text.
+          </p>
           {taskTooShort && (
             <p className="mt-1 text-[11px] text-fail-line">
               Describe the task in at least {MIN_TASK_LENGTH} characters.
@@ -130,6 +141,9 @@ export function ExperimentForm() {
 
         <fieldset className="mb-[18px]">
           <legend className={fieldLabel}>Agent under test · Vultr Serverless Inference</legend>
+          <p className="-mt-1 mb-2 text-[11px] text-muted">
+            The model that drives the agent. To compare models, run the same task once per model.
+          </p>
           {agents.error ? (
             <p className="text-fail-line">
               Could not load agents: {errorMessage(agents.error)}{" "}
@@ -170,6 +184,9 @@ export function ExperimentForm() {
 
         <fieldset className="mb-[18px]">
           <legend className={fieldLabel}>Number of isolated runs</legend>
+          <p className="-mt-1 mb-2 text-[11px] text-muted">
+            One run tells you nothing about reliability. 5 is a good start; 10 gives a steadier number but takes longer.
+          </p>
           <div role="radiogroup" className="flex flex-wrap gap-2">
             {RUN_COUNT_OPTIONS.map((n) => (
               <button
