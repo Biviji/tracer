@@ -60,9 +60,24 @@ class FileDiff(ApiModel):
     lines: list[DiffLine]
 
 
+class RunCheck(ApiModel):
+    """The user's check command, run after the agent in a fresh container with test files restored."""
+
+    command: str
+    exit_code: int | None
+    passed: bool
+    tests_passed: int | None = None
+    tests_total: int | None = None
+    #: Last part of the check's output, for the report.
+    output: str = ""
+
+
 class Run(ApiModel):
     index: int
     status: RunStatus
+    #: The model this run used (experiments can compare several).
+    agent_id: str = ""
+    agent_name: str = ""
     duration_s: float | None = None
     steps: list[TraceStep] = []
     diff: list[FileDiff] = []
@@ -71,6 +86,13 @@ class Run(ApiModel):
     exit_reason: str | None = None
     #: The agent's final message: what it concluded / reports back. None if killed before answering.
     answer: str | None = None
+    #: None when the experiment had no check command (PASS then means "the agent finished").
+    check: RunCheck | None = None
+    #: Test files / test config the agent changed. Any entry means the run can't pass.
+    tampered: list[str] = []
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    llm_calls: int | None = None
 
 
 # ---------- experiments ----------
@@ -90,9 +112,50 @@ class FailurePattern(ApiModel):
     runs: list[int]
 
 
+RunGroupKind = Literal["fix", "tampered", "no_change", "gave_up", "killed"]
+
+
+class RunGroup(ApiModel):
+    """Runs that did the same thing: the same code change, or the same way of failing."""
+
+    kind: RunGroupKind
+    label: str
+    runs: list[int]
+    #: How many runs in the group passed.
+    passed: int
+    files: list[str] = []
+    lines_added: int = 0
+    lines_removed: int = 0
+
+
+class ModelScore(ApiModel):
+    agent_id: str
+    agent_name: str
+    runs: int
+    passed: int
+    reliability: int
+    avg_duration_s: float | None
+    tokens_in: int
+    tokens_out: int
+    #: Total tokens spent per passing run (all runs' tokens / passes). None if nothing passed.
+    tokens_per_pass: int | None
+    #: Only when a price is configured for the model (MODEL_PRICES).
+    cost_usd: float | None
+    cost_per_pass_usd: float | None
+
+
 class Insights(ApiModel):
     divergence_summary: str | None
     patterns: list[FailurePattern]
+    #: One line, e.g. "3 runs made the same fix · 1 edited the tests · 1 ran out of steps".
+    summary: str | None = None
+    groups: list[RunGroup] = []
+    models: list[ModelScore] = []
+
+
+class AgentRef(ApiModel):
+    id: str
+    name: str
 
 
 class ExperimentSummary(ApiModel):
@@ -100,8 +163,11 @@ class ExperimentSummary(ApiModel):
     title: str
     task: str
     repo: str
+    #: First model; kept for older clients. `agents` lists every model in the experiment.
     agent_id: str
     agent_name: str
+    agents: list[AgentRef] = []
+    #: Total runs (runs per model × models).
     run_count: int
     status: ExperimentStatus
     created_at: str
@@ -110,6 +176,7 @@ class ExperimentSummary(ApiModel):
 
 class Experiment(ExperimentSummary):
     duration_s: float | None = None
+    check_command: str | None = None
     limits: SandboxLimits
     runs: list[Run]
     insights: Insights | None = None
@@ -124,8 +191,16 @@ Trimmed = Annotated[str, StringConstraints(strip_whitespace=True)]
 class CreateExperimentRequest(ApiModel):
     repo: Annotated[Trimmed, Field(min_length=1, max_length=500)]
     task: Annotated[Trimmed, Field(min_length=10, max_length=4000)]
-    agent_id: Annotated[Trimmed, Field(min_length=1)]
-    runs: int = Field(ge=1)  # upper bound comes from settings.max_runs
+    #: Models to compare; each gets `runs` runs. `agent_id` alone still works (one model).
+    agent_ids: list[Annotated[Trimmed, Field(min_length=1)]] = Field(default=[], max_length=4)
+    agent_id: Trimmed | None = None
+    runs: int = Field(ge=1)  # runs PER MODEL; upper bounds come from settings
+    #: Run after each agent finishes, e.g. "pytest -q". Empty = PASS means "the agent finished".
+    check_command: Annotated[Trimmed, Field(max_length=300)] | None = None
+
+    def model_ids(self) -> list[str]:
+        ids = list(dict.fromkeys(self.agent_ids or ([self.agent_id] if self.agent_id else [])))
+        return ids
 
 
 # ---------- overview ----------

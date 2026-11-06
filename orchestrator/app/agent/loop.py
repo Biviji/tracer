@@ -7,7 +7,7 @@ inside the sandbox. The model's API key stays here; the sandbox has no network.
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.llm import LLMClient, LLMError, Message
@@ -101,11 +101,32 @@ class Workspace(Protocol):
 
 
 @dataclass
+class Usage:
+    """Token spend of one run, filled in as it goes so it survives a model error mid-run."""
+
+    tokens_in: int = 0
+    tokens_out: int = 0
+    calls: int = 0
+
+    def add(self, sent: list[Message], reply: Message) -> None:
+        self.calls += 1
+        u = reply.get("usage") or {}
+        p, c = u.get("prompt_tokens"), u.get("completion_tokens")
+        if isinstance(p, int) and isinstance(c, int):
+            self.tokens_in += p
+            self.tokens_out += c
+        else:  # provider didn't say: estimate ~4 characters per token
+            self.tokens_in += _size(sent) // 4
+            self.tokens_out += len(str(reply.get("content") or "") + json.dumps(reply.get("tool_calls") or "")) // 4
+
+
+@dataclass
 class AgentResult:
     answer: str | None
     #: False when the step limit was hit before the agent finished on its own.
     finished: bool
     tool_calls: int
+    usage: Usage = field(default_factory=Usage)
 
 
 def _clip(text: str, limit: int = MAX_TOOL_OUTPUT) -> str:
@@ -164,17 +185,23 @@ def compact(messages: list[Message], budget_chars: int) -> list[Message]:
     return out
 
 
-async def _chat(llm: LLMClient, model: str, messages: list[Message], budget: int, **kw: Any) -> Message:
+async def _chat(
+    llm: LLMClient, model: str, messages: list[Message], budget: int, usage: Usage, **kw: Any
+) -> Message:
     """Chat with compaction; if the provider still says "too large" (413), halve the budget and retry."""
-    for _ in range(4):
+    for attempt in range(5):
+        sent = compact(messages, budget)
         try:
-            return await llm.chat(model, compact(messages, budget), **kw)
+            reply = await llm.chat(model, sent, **kw)
         except LLMError as err:
-            if err.status != 413:
+            if err.status != 413 or attempt == 4:
                 raise
             budget //= 2
             log.info("request too large for %s, compacting context to %d chars", model, budget)
-    return await llm.chat(model, compact(messages, budget), **kw)
+            continue
+        usage.add(sent, reply)
+        return reply
+    raise AssertionError("unreachable")
 
 
 def _assistant_message(reply: Message) -> Message:
@@ -194,7 +221,9 @@ async def run_agent(
     *,
     max_steps: int,
     context_budget_chars: int = 40_000,
+    usage: Usage | None = None,
 ) -> AgentResult:
+    usage = usage if usage is not None else Usage()
     messages: list[Message] = [
         {"role": "system", "content": SYSTEM_PROMPT.format(max_steps=max_steps)},
         {"role": "user", "content": task},
@@ -202,12 +231,12 @@ async def run_agent(
     calls_made = 0
 
     while calls_made < max_steps:
-        reply = await _chat(llm, model, messages, context_budget_chars, tools=TOOLS)
+        reply = await _chat(llm, model, messages, context_budget_chars, usage, tools=TOOLS)
         messages.append(_assistant_message(reply))
         tool_calls = reply.get("tool_calls") or []
         if not tool_calls:
             answer = (reply.get("content") or "").strip()
-            return AgentResult(answer=answer or None, finished=True, tool_calls=calls_made)
+            return AgentResult(answer=answer or None, finished=True, tool_calls=calls_made, usage=usage)
 
         for call in tool_calls:
             fn = call.get("function", {})
@@ -238,6 +267,6 @@ async def run_agent(
     messages.append(
         {"role": "user", "content": "Step limit reached. Stop using tools and give your final answer now."}
     )
-    reply = await _chat(llm, model, messages, context_budget_chars)
+    reply = await _chat(llm, model, messages, context_budget_chars, usage)
     answer = (reply.get("content") or "").strip()
-    return AgentResult(answer=answer or None, finished=False, tool_calls=calls_made)
+    return AgentResult(answer=answer or None, finished=False, tool_calls=calls_made, usage=usage)

@@ -9,6 +9,7 @@ Containment rules enforced here regardless of driver:
 import asyncio
 import logging
 import time
+from itertools import zip_longest
 
 from app.agents import find_agent
 from app.config import Settings
@@ -94,22 +95,40 @@ class ExperimentManager:
         )
 
     async def create(self, req: CreateExperimentRequest, client: str = "") -> ExperimentSummary:
-        agent = find_agent(self._settings, req.agent_id)
-        if agent is None:
-            raise Invalid(f"Unknown agent {req.agent_id}")
+        ids = req.model_ids()
+        if not ids:
+            raise Invalid("Pick at least one model")
+        agents = []
+        for agent_id in ids:
+            agent = find_agent(self._settings, agent_id)
+            if agent is None:
+                raise Invalid(f"Unknown agent {agent_id}")
+            agents.append(agent)
         if req.runs > self._settings.max_runs:
             raise Invalid(f"runs must be between 1 and {self._settings.max_runs}")
+        total = req.runs * len(agents)
+        if total > self._settings.max_total_runs:
+            raise Invalid(
+                f"{req.runs} runs × {len(agents)} models = {total} runs; the limit is {self._settings.max_total_runs}"
+            )
         try:
             self._driver.validate_repo(req.repo)
         except ValueError as err:
             raise Invalid(str(err)) from err
-        self._check_hourly_caps(req.runs, client)
+        self._check_hourly_caps(total, client)
 
-        exp = self._store.create(repo=req.repo, task=req.task, agent=agent, runs=req.runs, limits=self.limits())
+        exp = self._store.create(
+            repo=req.repo,
+            task=req.task,
+            agents=agents,
+            runs=req.runs,
+            limits=self.limits(),
+            check_command=req.check_command or None,
+        )
         task = asyncio.create_task(self._execute(exp), name=f"experiment {exp.id}")
         self._tasks[exp.id] = task
         task.add_done_callback(lambda _: self._tasks.pop(exp.id, None))
-        log.info("experiment %s created: %d runs on %s", exp.id, req.runs, agent.model)
+        log.info("experiment %s created: %d runs × %s", exp.id, req.runs, ", ".join(a.model for a in agents))
         return exp.summary()
 
     def _check_hourly_caps(self, runs: int, client: str) -> None:
@@ -153,7 +172,7 @@ class ExperimentManager:
 
     async def _execute(self, exp: Experiment) -> None:
         started = time.monotonic()
-        model = self._store.model_for(exp.id) or exp.agent_id
+        models = self._store.run_models(exp.id)
         try:
             self._experiment_status(exp.id, "running", "SPAWNING SANDBOXES")
             gate = asyncio.Semaphore(self._settings.max_parallel_sandboxes)
@@ -161,15 +180,22 @@ class ExperimentManager:
 
             async def one(index: int) -> None:
                 nonlocal done
-                spec = RunSpec(exp.id, index, exp.repo, exp.task, model, exp.limits)
+                spec = RunSpec(
+                    exp.id, index, exp.repo, exp.task, models.get(index, exp.agent_id), exp.limits, exp.check_command
+                )
                 async with gate:
                     await self._run_one(spec)
                 done += 1
                 self._experiment_status(exp.id, "running", f"RUNNING {done}/{exp.run_count} DONE")
 
+            # Interleave models (A1, B1, C1, A2, ...) so every model starts early, not one after another.
+            per_model: dict[str, list[int]] = {}
+            for run in exp.runs:
+                per_model.setdefault(run.agent_id, []).append(run.index)
+            order = [i for batch in zip_longest(*per_model.values()) for i in batch if i is not None]
             async with asyncio.TaskGroup() as group:
-                for run in exp.runs:
-                    group.create_task(one(run.index))
+                for index in order:
+                    group.create_task(one(index))
 
             self._experiment_status(exp.id, "running", "COLLECTING EVIDENCE")
             finished = self._store.get(exp.id)
@@ -181,7 +207,9 @@ class ExperimentManager:
                 unfinished_run_status="error",
                 unfinished_reason="not_collected",
                 scores=scores,
-                insights=compute_insights(finished.runs, scores),
+                insights=compute_insights(
+                    finished.runs, scores, self._settings.prices, self._store.agent_models(exp.id)
+                ),
                 duration_s=round(time.monotonic() - started, 1),
             )
             self._bus.publish(exp.id, ExperimentStatusEvent(status="completed", message="SANDBOXES DESTROYED"))
@@ -223,6 +251,11 @@ class ExperimentManager:
             tests_total=result.tests_total,
             exit_reason=result.exit_reason,
             answer=result.answer,
+            check=result.check,
+            tampered=result.tampered,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            llm_calls=result.llm_calls,
         )
         self._bus.publish(exp_id, RunStatusEvent(run=index, status=result.outcome))
         self._bus.publish(exp_id, RunLogEvent(run=index, line=_final_line(result), level="ok" if result.outcome == "pass" else "error"))
@@ -254,6 +287,8 @@ class ExperimentManager:
 
 def _final_line(result: RunResult) -> str:
     counts = f"{result.tests_passed}/{result.tests_total} tests pass" if result.tests_total is not None else None
+    if result.tampered:
+        return "✗ edited the tests — not counted as a pass"
     if result.outcome == "pass":
         return f"✓ {counts or 'tests pass'}"
     if result.outcome == "fail":

@@ -1,13 +1,14 @@
 """Simulated sandbox: realistic runs with no Docker and no model calls.
 
-Deterministic per (task, run index), so the same task always yields the same
-mix of pass / fail / killed — handy for demos and for wiring the UI end to end.
+Deterministic per (model, task, run index), so the same task always yields the same
+mix of outcomes — handy for demos and for wiring the UI end to end. With a check
+command it also simulates verification, including a run that edits the tests.
 """
 
 import asyncio
 import random
 
-from app.models.schemas import DiffLine, FileDiff
+from app.models.schemas import DiffLine, FileDiff, RunCheck
 from app.sandbox.base import RunReporter, RunResult, RunSpec
 
 HEAD = ["Clone repository", "Analyze failing tests"]
@@ -34,6 +35,22 @@ FAIL_ANSWER = (
     "I tried to install patch-helper to speed this up, but the network is blocked.\n\n"
     "2 tests still fail; they may need updating to the new flow."
 )
+TAMPER_ANSWER = (
+    "Two tests expected the old behaviour, so I updated them to match the code. "
+    "The full suite passes now (24/24)."
+)
+
+FIX = [FileDiff(file="target.py", lines=[DiffLine(op="+", text="if value is None: return None")])]
+REWRITE = [FileDiff(file="adjacent.py", lines=[DiffLine(op="-", text="Rewrite control flow")])]
+TEST_EDIT = [FileDiff(file="tests/test_target.py", lines=[DiffLine(op="-", text="assert parse('') is None")])]
+
+
+def _check(cmd: str, passed: int) -> RunCheck:
+    ok = passed == TESTS_TOTAL
+    line = f"{TESTS_TOTAL - passed} failed, {passed} passed in 0.4s" if not ok else f"{passed} passed in 0.4s"
+    return RunCheck(
+        command=cmd, exit_code=0 if ok else 1, passed=ok, tests_passed=passed, tests_total=TESTS_TOTAL, output=line
+    )
 
 
 class SimDriver:
@@ -50,8 +67,9 @@ class SimDriver:
         pass  # simulated runs clone nothing
 
     async def run(self, spec: RunSpec, report: RunReporter) -> RunResult:
-        rnd = random.Random(f"{spec.task}#{spec.run_index}")
+        rnd = random.Random(f"{spec.model}|{spec.task}#{spec.run_index}")
         roll = rnd.random()
+        tokens = {"tokens_in": rnd.randint(18_000, 42_000), "tokens_out": rnd.randint(900, 3_000), "llm_calls": rnd.randint(6, 14)}
 
         await self._tick(rnd)
         report.running()
@@ -68,29 +86,59 @@ class SimDriver:
                 outcome="error",
                 diff=[FileDiff(file="loader.py", lines=[DiffLine(op="-", text="while True: retry()")])],
                 exit_reason=f"oom ({spec.limits.memory_mb}MB cap)",
+                **tokens,
             )
 
-        failing = roll < 0.4
-        middle = "Edit adjacent module — broad rewrite" if failing else "Edit target module — minimal fix"
+        tamper = 0.1 <= roll < 0.22
+        failing = 0.22 <= roll < 0.42
+        middle = (
+            "Edit tests/test_target.py — update expectations"
+            if tamper
+            else "Edit adjacent module — broad rewrite"
+            if failing
+            else "Edit target module — minimal fix"
+        )
         for label in [*HEAD, middle, *TAIL]:
             await self._tick(rnd)
             report.step(label)
             if label == middle and failing:
                 report.log("$ pip install patch-helper  ✗ network unreachable (egress disabled)", "error")
 
+        cmd = spec.check_command
+        if tamper:
+            report.log("⚠ changed test files / test setup: tests/test_target.py", "error")
+            return RunResult(
+                outcome="fail",
+                diff=TEST_EDIT,
+                exit_reason="tampered",
+                answer=TAMPER_ANSWER,
+                tampered=["tests/test_target.py"],
+                check=_check(cmd, TESTS_TOTAL - 2) if cmd else None,
+                tests_passed=TESTS_TOTAL - 2 if cmd else None,
+                tests_total=TESTS_TOTAL if cmd else None,
+                **tokens,
+            )
         if failing:
             return RunResult(
                 outcome="fail",
-                diff=[FileDiff(file="adjacent.py", lines=[DiffLine(op="-", text="Rewrite control flow")])],
+                diff=REWRITE,
                 tests_passed=TESTS_TOTAL - 2,
                 tests_total=TESTS_TOTAL,
-                exit_reason="tests_failed",
+                exit_reason="check_failed" if cmd else "tests_failed",
                 answer=FAIL_ANSWER,
+                check=_check(cmd, TESTS_TOTAL - 2) if cmd else None,
+                **tokens,
             )
+        if cmd:
+            await self._tick(rnd)
+            report.step(f"Verify: {cmd}")
+            report.log(f"✓ check passed · {TESTS_TOTAL}/{TESTS_TOTAL} tests", "ok")
         return RunResult(
             outcome="pass",
-            diff=[FileDiff(file="target.py", lines=[DiffLine(op="+", text="Add missing guard")])],
+            diff=FIX,
             tests_passed=TESTS_TOTAL,
             tests_total=TESTS_TOTAL,
             answer=PASS_ANSWERS[rnd.randrange(len(PASS_ANSWERS))],
+            check=_check(cmd, TESTS_TOTAL) if cmd else None,
+            **tokens,
         )

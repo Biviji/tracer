@@ -8,8 +8,12 @@ Per run:
   3. the *agent* container starts on the same per-run volume with NO network, no
      capabilities, no-new-privileges, memory / CPU / process caps, an unprivileged user,
      no secrets in its env, and optionally gVisor; each agent tool call = one `docker exec`
-  4. collect `git diff` and the agent's answer
-  5. destroy the containers and the volume — always, including on timeout, cancel and crash
+  4. collect `git diff` (against the starting commit) and the agent's answer; flag changed
+     test files / test config as tampering
+  5. with a check command: destroy the agent container, start a fresh *verify* container on
+     the same volume (no network), put test files back as they were, make sure installed
+     dependencies weren't altered, then run the check — its result decides pass / fail
+  6. destroy the containers and the volume — always, including on timeout, cancel and crash
 
 So the model never shares a box with the internet.
 Docker SDK calls block, so they run in worker threads.
@@ -33,10 +37,12 @@ from docker.errors import DockerException, NotFound
 from docker.models.containers import Container
 
 from app.agent import run_agent
+from app.agent.loop import Usage
 from app.config import Settings
 from app.llm import LLMClient, LLMError
-from app.models.schemas import DiffLine, FileDiff
+from app.models.schemas import DiffLine, FileDiff, RunCheck
 from app.sandbox.base import RunReporter, RunResult, RunSpec
+from app.sandbox.verify import parse_test_counts, protected_files, restore_script, tail
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +93,9 @@ def _clone(url: str, dest: Path, timeout_s: int, max_mb: int) -> None:
         "-c", "protocol.allow=never",
         "-c", "protocol.https.allow=always",
         "-c", "http.followRedirects=false",
+        # Check out files exactly as committed: on a Windows host with autocrlf, git inside the
+        # Linux sandbox would otherwise see every file as modified (and flag test files as tampered).
+        "-c", "core.autocrlf=false",
         "clone", "--depth", "1", "--single-branch", "--no-tags", "--", url, str(dest),
     ]  # fmt: skip
     try:
@@ -109,6 +118,20 @@ def _copy_demo(src: Path, dest: Path) -> None:
     git = ["git", "-c", "user.email=demo@trace.local", "-c", "user.name=TRACE", "-c", "core.autocrlf=false"]
     for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "demo repo"]):
         subprocess.run([*git, *cmd], cwd=dest, check=True, capture_output=True)
+
+
+def _head_sha(repo: Path) -> str:
+    proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True)
+    return proc.stdout.strip()
+
+
+#: Fingerprint of installed dependencies (bytecode caches excluded: running tests rewrites them).
+#: If it changes during the run, the agent edited the tools the check relies on.
+DEPS_FINGERPRINT = (
+    "for d in .venv node_modules; do [ -d \"$d\" ] && find \"$d\" -type f ! -name '*.pyc' "
+    "! -path '*/.cache/*' -print0; done | sort -z | xargs -0 -r sha256sum | sha256sum | cut -c1-16"
+)
+DEPS_TAMPERED = "installed dependencies (.venv / node_modules)"
 
 
 def _exclude_dep_dirs(repo: Path) -> None:
@@ -356,6 +379,7 @@ class DockerDriver:
                 report.log(f"✗ {err}", "error")
                 return RunResult.killed("clone_failed")
             await asyncio.to_thread(_exclude_dep_dirs, repo)
+            base = await asyncio.to_thread(_head_sha, repo)
             archive = await asyncio.to_thread(_tar_dir, repo)
             install = install_command(repo) if self._s.sandbox_install_deps else None
 
@@ -373,6 +397,13 @@ class DockerDriver:
             )
 
             ws = _ContainerWorkspace(container, self._s.command_timeout_s)
+            deps_before = (await ws._exec(["bash", "-c", DEPS_FINGERPRINT]))[1].strip() if spec.check_command else ""
+            usage = Usage()
+
+            def spent(res: RunResult) -> RunResult:
+                res.tokens_in, res.tokens_out, res.llm_calls = usage.tokens_in, usage.tokens_out, usage.calls
+                return res
+
             try:
                 result = await run_agent(
                     self._llm,
@@ -382,21 +413,87 @@ class DockerDriver:
                     report,
                     max_steps=self._s.agent_max_steps,
                     context_budget_chars=self._s.agent_context_chars,
+                    usage=usage,
                 )
             except LLMError as err:
                 log.warning("run %s#%d: model error: %s", spec.experiment_id, spec.run_index, err)
                 report.log(f"✗ model error: {str(err)[:160]}", "error")
-                return RunResult.killed(f"model_error ({err.status or 'network'})")
+                return spent(RunResult.killed(f"model_error ({err.status or 'network'})"))
 
-            _, diff_text = await ws._exec(["bash", "-lc", "git add -A -N . && git diff --no-color"])
+            # Diff against the starting commit, so changes the agent committed still show.
+            code, diff_text = await ws._exec(["bash", "-lc", f"git add -A -N . && git diff --no-color {base}"])
+            _, names = await ws._exec(["bash", "-lc", f"git diff --name-only {base}"])
             diff = parse_git_diff(diff_text)
-            if result.finished:
-                return RunResult(outcome="pass", diff=diff, answer=result.answer)
-            return RunResult(outcome="fail", diff=diff, answer=result.answer, exit_reason="step_limit")
+            tampered = protected_files(names.splitlines()) if code == 0 else [".git"]
+            if tampered:
+                report.log(f"⚠ changed test files / test setup: {', '.join(tampered)[:160]}", "error")
+
+            check = None
+            if spec.check_command:
+                # The agent's container goes first: nothing it started keeps running during the check.
+                await asyncio.to_thread(self._destroy, container)
+                check, deps_changed = await self._verify(spec, volume.name, base, tampered, deps_before, report, containers)
+                if deps_changed:
+                    tampered = [*tampered, DEPS_TAMPERED]
+
+            res = RunResult(outcome="fail", diff=diff, answer=result.answer, check=check, tampered=tampered)
+            if not result.finished:
+                res.exit_reason = "step_limit"
+            if tampered:
+                res.exit_reason = "tampered"
+            elif check is not None:
+                res.outcome = "pass" if check.passed else "fail"
+                if not check.passed:
+                    res.exit_reason = "check_failed"
+                res.tests_passed, res.tests_total = check.tests_passed, check.tests_total
+            elif result.finished:
+                res.outcome = "pass"  # no check command: we can only trust the agent
+            return spent(res)
         finally:
             shutil.rmtree(tmp, onexc=_force_remove)
             # Shielded: a cancelled run still waits for its sandbox to be gone.
             await asyncio.shield(asyncio.to_thread(self._destroy_all, containers, volume))
+
+    async def _verify(
+        self,
+        spec: RunSpec,
+        volume: str,
+        base: str,
+        tampered: list[str],
+        deps_before: str,
+        report: RunReporter,
+        containers: list[Container],
+    ) -> tuple[RunCheck, bool]:
+        """Run the check in a fresh container: test files restored, no network. Returns (check, deps_changed)."""
+        cmd = spec.check_command or ""
+        verify = await asyncio.to_thread(self._start, spec, volume, role="verify")
+        containers.append(verify)
+        ws = _ContainerWorkspace(verify, self._s.check_timeout_s)
+        report.log(f"$ verifying in a fresh sandbox: {cmd}")
+        if tampered:
+            await ws._exec(["bash", "-c", restore_script(tampered, base)])
+            report.log("  test files restored to their original version before checking")
+        deps_after = (await ws._exec(["bash", "-c", DEPS_FINGERPRINT]))[1].strip()
+        deps_changed = bool(deps_before) and deps_after != deps_before
+        if deps_changed:
+            report.log("⚠ installed dependencies were modified during the run", "error")
+
+        t = self._s.check_timeout_s
+        code, out = await ws._exec(["timeout", "-s", "KILL", str(t), "bash", "-lc", cmd])
+        passed_n, total_n = parse_test_counts(out)
+        ok = code == 0
+        counts = f" · {passed_n}/{total_n} tests" if total_n is not None else ""
+        report.step(f"Verify: {cmd}", detail=tail(out, 600))
+        report.log(f"{'✓' if ok else '✗'} check {'passed' if ok else f'failed (exit {code})'}{counts}", "ok" if ok else "error")
+        check = RunCheck(
+            command=cmd,
+            exit_code=code,
+            passed=ok,
+            tests_passed=passed_n,
+            tests_total=total_n,
+            output=tail(out) + (f"\n[killed: exceeded {t}s]" if code == 137 else ""),
+        )
+        return check, deps_changed
 
     async def _setup(
         self,

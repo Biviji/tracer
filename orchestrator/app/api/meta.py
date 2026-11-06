@@ -44,20 +44,29 @@ async def overview(deps: Deps) -> OverviewStats:
     done = [e for e in deps.store.list_all() if e.status == "completed" and e.scores]
     rel = lambda e: e.scores.reliability  # noqa: E731
 
-    by_agent: dict[str, list[Experiment]] = {}
+    # Per model, using each run's own model (an experiment can compare several).
+    by_agent: dict[str, list[tuple[Experiment, int]]] = {}
+    names: dict[str, str] = {}
     for e in done:
-        by_agent.setdefault(e.agent_id, []).append(e)
+        per: dict[str, list[bool]] = {}
+        for r in e.runs:
+            if r.status == "cancelled":
+                continue
+            per.setdefault(r.agent_id or e.agent_id, []).append(r.status == "pass")
+            names[r.agent_id or e.agent_id] = r.agent_name or e.agent_name
+        for agent_id, results in per.items():
+            by_agent.setdefault(agent_id, []).append((e, round(sum(results) / len(results) * 100)))
 
     stats = []
-    for agent_id, exps in by_agent.items():
-        worst = min(exps, key=rel)
+    for agent_id, items in by_agent.items():
+        worst_exp, worst_rel = min(items, key=lambda t: t[1])
         stats.append(
             AgentStats(
                 agent_id=agent_id,
-                agent_name=exps[0].agent_name,
-                experiments=len(exps),
-                avg_reliability=_avg([rel(e) for e in exps]) or 0,
-                worst=WorstExperiment(id=worst.id, title=worst.title, reliability=rel(worst)),
+                agent_name=names.get(agent_id, agent_id),
+                experiments=len(items),
+                avg_reliability=_avg([r for _, r in items]) or 0,
+                worst=WorstExperiment(id=worst_exp.id, title=worst_exp.title, reliability=worst_rel),
             )
         )
 

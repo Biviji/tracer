@@ -36,7 +36,10 @@ class Settings(BaseSettings):
     # "sim" = in-process simulation (no Docker); "docker" = real isolated containers.
     sandbox_driver: Literal["sim", "docker"] = "sim"
     sim_step_s: float = Field(default=0.5, ge=0)
+    #: Runs per model in one experiment.
     max_runs: int = Field(default=10, ge=1)
+    #: Runs in one experiment across all its models (runs × models).
+    max_total_runs: int = Field(default=20, ge=1)
     max_parallel_sandboxes: int = Field(default=4, ge=1)
     #: Spend guard for a public deployment: total runs (all experiments) allowed per rolling hour.
     #: 0 = unlimited.
@@ -54,6 +57,8 @@ class Settings(BaseSettings):
     #: Conversation size kept per model call; older tool outputs are shrunk to fit.
     #: ~4 chars per token. Groq free tier caps a single request at 8000 tokens -> use ~20000.
     agent_context_chars: int = Field(default=40_000, ge=4_000)
+    #: Wall-clock cap for the check command (e.g. the test suite) run after the agent.
+    check_timeout_s: int = Field(default=180, ge=5)
     #: Wall-clock cap for one command the agent runs inside the sandbox.
     command_timeout_s: int = Field(default=60, ge=1)
     clone_timeout_s: int = Field(default=90, ge=5)
@@ -71,11 +76,28 @@ class Settings(BaseSettings):
     #: a user-space kernel that adds a second wall between agent code and the host.
     sandbox_runtime: str = ""
 
+    #: Prices for "cost per correct fix", USD per 1M tokens: "model=in/out,model2=in/out".
+    #: Models without a price show tokens only.
+    model_prices: str = ""
+
     log_level: str = "INFO"
 
     @property
     def model_ids(self) -> list[str]:
         return [m.strip() for m in self.llm_models.split(",") if m.strip()]
+
+    @property
+    def prices(self) -> dict[str, tuple[float, float]]:
+        """model id -> (USD per 1M input tokens, USD per 1M output tokens). Bad entries are skipped."""
+        out: dict[str, tuple[float, float]] = {}
+        for item in self.model_prices.split(","):
+            model, _, price = item.strip().rpartition("=")
+            p_in, _, p_out = price.partition("/")
+            try:
+                out[model.strip()] = (float(p_in), float(p_out or p_in))
+            except ValueError:
+                continue
+        return {m: p for m, p in out.items() if m}
 
     @property
     def repo_hosts(self) -> set[str]:

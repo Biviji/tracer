@@ -39,7 +39,10 @@ class LLMClient(Protocol):
         tools: list[dict[str, Any]] | None = None,
         temperature: float | None = None,
     ) -> Message:
-        """Return the assistant message: {"role": "assistant", "content": ..., "tool_calls"?: [...]}."""
+        """Return the assistant message: {"role": "assistant", "content": ..., "tool_calls"?: [...]}.
+
+        It may also carry "usage" ({"prompt_tokens", "completion_tokens"}) when the provider reports it.
+        """
         ...
 
     async def ping(self) -> bool:

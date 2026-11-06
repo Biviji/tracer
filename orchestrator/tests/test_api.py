@@ -169,3 +169,42 @@ def test_refused_repo_is_rejected_before_anything_runs(tmp_path):
         res = client.post("/experiments", json={"repo": "https://10.0.0.1/x/y", "task": TASK, "agentId": "fake", "runs": 1})
         assert res.status_code == 422 and "github.com" in res.json()["detail"]
         assert client.get("/experiments").json() == []
+
+
+def test_multi_model_experiment_with_check(tmp_path):
+    """Two models, 4 runs each, verified by a check command: per-model table and run groups come back."""
+    client = make_client(tmp_path, llm_provider="openai_compatible", llm_models="org/model-a,org/model-b", model_prices="org/model-a=1/2")
+    with client:
+        res = client.post(
+            "/experiments",
+            json={"repo": "demo", "task": TASK, "agentIds": ["org-model-a", "org-model-b"], "runs": 4, "checkCommand": "pytest -q"},
+        )
+        assert res.status_code == 201, res.text
+        created = res.json()
+        assert created["runCount"] == 8
+        assert [a["name"] for a in created["agents"]] == ["model-a", "model-b"]
+
+        exp = wait_for(client, created["id"], {"completed"})
+        assert exp["checkCommand"] == "pytest -q"
+        assert [r["agentName"] for r in exp["runs"]] == ["model-a"] * 4 + ["model-b"] * 4
+        for r in exp["runs"]:
+            if r["status"] == "pass":
+                assert r["check"]["passed"] and not r["tampered"]
+            if r["tampered"]:
+                assert r["status"] != "pass"
+            assert r["tokensIn"] and r["tokensOut"]
+
+        models = {m["agentName"]: m for m in exp["insights"]["models"]}
+        assert set(models) == {"model-a", "model-b"} and models["model-a"]["runs"] == 4
+        assert (models["model-a"]["costUsd"] is not None) and models["model-b"]["costUsd"] is None
+        assert sum(len(g["runs"]) for g in exp["insights"]["groups"]) == 8
+        assert exp["insights"]["summary"]
+
+
+def test_total_run_cap_across_models(tmp_path):
+    client = make_client(tmp_path, llm_provider="openai_compatible", llm_models="a,b,c", max_total_runs=10)
+    with client:
+        res = client.post("/experiments", json={"repo": "demo", "task": TASK, "agentIds": ["a", "b", "c"], "runs": 4})
+        assert res.status_code == 422 and "limit is 10" in res.text
+        res = client.post("/experiments", json={"repo": "demo", "task": TASK, "agentIds": [], "runs": 2})
+        assert res.status_code == 422

@@ -148,3 +148,68 @@ def test_demo_repo_installs_deps_offline_agent_can_use_them():
     assert result.diff == []  # .venv is not part of the diff
     assert _client.containers.list(all=True, filters={"label": LABEL}) == []
     assert _client.volumes.list(filters={"label": LABEL}) == []
+
+
+@pytest.fixture
+def buggy_repo(tmp_path, monkeypatch):
+    """A tiny repo with one bug and a test that catches it."""
+    src = tmp_path / "buggy"
+    (src / "tests").mkdir(parents=True)
+    (src / "calc.py").write_bytes(b"def add(a, b):\n    return a - b\n")
+    (src / "tests" / "test_calc.py").write_bytes(b"from calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n")
+    (src / "pytest.ini").write_bytes(b"[pytest]\npythonpath = .\n")
+
+    def fake_clone(url, dest, timeout_s, max_mb):
+        shutil.copytree(src, dest)
+        import subprocess
+
+        # LF files and no autocrlf, like a Linux checkout; otherwise git in the sandbox sees every file as changed
+        for cmd in (["init", "-q"], ["add", "."], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]):
+            subprocess.run(["git", "-c", "core.autocrlf=false", *cmd], cwd=dest, check=True)
+
+    monkeypatch.setattr(docker_driver, "_clone", fake_clone)
+
+
+def _check_spec(index):
+    return RunSpec("EXP-TEST", index, "https://github.com/x/y", "Fix add", "m", SandboxLimits(timeout_s=180, memory_mb=256, cpus=0.5, network="none"), "python -m pytest -q")
+
+
+def test_check_decides_pass_and_counts_tests(buggy_repo):
+    llm = ScriptedLLM(
+        [
+            {"role": "assistant", "tool_calls": [call("write_file", "c1", path="calc.py", content="def add(a, b):\n    return a + b\n")], "usage": {"prompt_tokens": 120, "completion_tokens": 30}},
+            {"role": "assistant", "content": "Fixed the sign.", "usage": {"prompt_tokens": 200, "completion_tokens": 10}},
+        ]
+    )
+    driver = DockerDriver(Settings(_env_file=None, sandbox_driver="docker", check_timeout_s=60), llm)
+    rep = Reporter()
+
+    result = asyncio.run(driver.run(_check_spec(4), rep))
+
+    assert result.outcome == "pass", rep.logs
+    assert result.check.passed and (result.check.tests_passed, result.check.tests_total) == (1, 1)
+    assert result.tampered == []
+    assert (result.tokens_in, result.tokens_out, result.llm_calls) == (320, 40, 2)
+    assert rep.steps[-1] == "Verify: python -m pytest -q"
+    assert _client.containers.list(all=True, filters={"label": LABEL}) == []
+
+
+def test_editing_the_tests_is_caught_and_undone_for_the_check(buggy_repo):
+    """The agent 'fixes' the failure by changing the test. Flagged, never a pass, and the check runs the original test."""
+    llm = ScriptedLLM(
+        [
+            {"role": "assistant", "tool_calls": [call("write_file", "c1", path="tests/test_calc.py", content="def test_add():\n    assert True\n")]},
+            {"role": "assistant", "tool_calls": [call("run_command", "c2", command="git add -A && git -c user.email=a@a -c user.name=a commit -qm hide")]},
+            {"role": "assistant", "content": "Updated the test; suite passes."},
+        ]
+    )
+    driver = DockerDriver(Settings(_env_file=None, sandbox_driver="docker", check_timeout_s=60), llm)
+    rep = Reporter()
+
+    result = asyncio.run(driver.run(_check_spec(5), rep))
+
+    assert result.outcome == "fail" and result.exit_reason == "tampered"
+    assert result.tampered == ["tests/test_calc.py"]  # seen even though the agent committed it
+    assert not result.check.passed and (result.check.tests_passed, result.check.tests_total) == (0, 1)
+    assert _client.containers.list(all=True, filters={"label": LABEL}) == []
+    assert _client.volumes.list(filters={"label": LABEL}) == []

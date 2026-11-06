@@ -13,12 +13,12 @@ def make_store(tmp_path) -> Store:
 
 def test_create_and_read_back(tmp_path):
     store = make_store(tmp_path)
-    exp = store.create(repo="r", task="Fix the flaky loader test", agent=AGENT, runs=3, limits=LIMITS)
+    exp = store.create(repo="r", task="Fix the flaky loader test", agents=[AGENT], runs=3, limits=LIMITS)
 
     assert exp.id == "EXP-001"
     assert exp.title == "Fix the flaky loader test"
     assert [r.status for r in exp.runs] == ["queued"] * 3
-    assert store.model_for(exp.id) == "model-a"
+    assert store.run_models(exp.id) == {1: "model-a", 2: "model-a", 3: "model-a"}
 
     store.append_step(exp.id, 1, TraceStep(index=1, label="clone"))
     store.update_run(exp.id, 1, status="pass", diff=[FileDiff(file="x.py", lines=[DiffLine(op="+", text="y")])])
@@ -39,7 +39,7 @@ def test_unknown_ids(tmp_path):
 
 def test_restart_fails_interrupted_experiments(tmp_path):
     store = make_store(tmp_path)
-    exp = store.create(repo="r", task="Fix the flaky loader test", agent=AGENT, runs=2, limits=LIMITS)
+    exp = store.create(repo="r", task="Fix the flaky loader test", agents=[AGENT], runs=2, limits=LIMITS)
     store.set_status(exp.id, "running")
     store.update_run(exp.id, 1, status="pass")
 
@@ -55,7 +55,7 @@ def test_init_adds_answer_column_to_an_old_database(tmp_path):
     db = tmp_path / "old.db"
     store = Store(f"sqlite:///{db}")
     store.init()
-    exp = store.create(repo="r", task="Fix the flaky loader test", agent=AGENT, runs=1, limits=LIMITS)
+    exp = store.create(repo="r", task="Fix the flaky loader test", agents=[AGENT], runs=1, limits=LIMITS)
     store.dispose()
     with sqlite3.connect(db) as conn:  # simulate a DB created before `answer` existed
         conn.execute("ALTER TABLE runs DROP COLUMN answer")

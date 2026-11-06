@@ -27,6 +27,7 @@ from app.models.schemas import (
     ACTIVE_EXPERIMENT_STATUSES,
     TERMINAL_RUN_STATUSES,
     Agent,
+    AgentRef,
     Experiment,
     ExperimentStatus,
     ExperimentSummary,
@@ -71,6 +72,9 @@ class ExperimentRow(Base):
     limits: Mapped[dict[str, Any]] = mapped_column(JSON)
     scores: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     insights: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    #: Every model in the experiment: [{"id", "name", "model"}]. NULL on rows from before multi-model.
+    agents: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    check_command: Mapped[str | None] = mapped_column(Text)
 
     runs: Mapped[list["RunRow"]] = relationship(
         back_populates="experiment", order_by="RunRow.index", cascade="all, delete-orphan"
@@ -90,6 +94,14 @@ class RunRow(Base):
     tests_total: Mapped[int | None] = mapped_column(Integer)
     exit_reason: Mapped[str | None] = mapped_column(String(200))
     answer: Mapped[str | None] = mapped_column(Text)
+    agent_id: Mapped[str | None] = mapped_column(String(200))
+    agent_name: Mapped[str | None] = mapped_column(String(200))
+    model: Mapped[str | None] = mapped_column(String(200))
+    check_result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    tampered: Mapped[list[str] | None] = mapped_column(JSON)
+    tokens_in: Mapped[int | None] = mapped_column(Integer)
+    tokens_out: Mapped[int | None] = mapped_column(Integer)
+    llm_calls: Mapped[int | None] = mapped_column(Integer)
 
     experiment: Mapped[ExperimentRow] = relationship(back_populates="runs")
 
@@ -97,7 +109,19 @@ class RunRow(Base):
 #: Nullable columns added after the first release: (table, column, SQL type).
 #: Adding a nullable column is a metadata-only change — safe on existing data.
 #: Replace with Alembic once we move to Postgres.
-_ADDED_COLUMNS = [("runs", "answer", "TEXT")]
+_ADDED_COLUMNS = [
+    ("runs", "answer", "TEXT"),
+    ("runs", "agent_id", "VARCHAR(200)"),
+    ("runs", "agent_name", "VARCHAR(200)"),
+    ("runs", "model", "VARCHAR(200)"),
+    ("runs", "check_result", "JSON"),
+    ("runs", "tampered", "JSON"),
+    ("runs", "tokens_in", "INTEGER"),
+    ("runs", "tokens_out", "INTEGER"),
+    ("runs", "llm_calls", "INTEGER"),
+    ("experiments", "agents", "JSON"),
+    ("experiments", "check_command", "TEXT"),
+]
 
 
 def _iso(dt: datetime) -> str:
@@ -105,10 +129,17 @@ def _iso(dt: datetime) -> str:
     return dt.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
 
 
-def _to_run(row: RunRow) -> Run:
+def _to_run(row: RunRow, exp: ExperimentRow) -> Run:
     return Run.model_validate(
         {
             "index": row.index,
+            "agent_id": row.agent_id or exp.agent_id,
+            "agent_name": row.agent_name or exp.agent_name,
+            "check": row.check_result,
+            "tampered": row.tampered or [],
+            "tokens_in": row.tokens_in,
+            "tokens_out": row.tokens_out,
+            "llm_calls": row.llm_calls,
             "status": row.status,
             "duration_s": row.duration_s,
             "steps": row.steps,
@@ -129,13 +160,17 @@ def _to_experiment(row: ExperimentRow) -> Experiment:
         repo=row.repo,
         agent_id=row.agent_id,
         agent_name=row.agent_name,
+        agents=[AgentRef(id=a["id"], name=a["name"]) for a in row.agents]
+        if row.agents
+        else [AgentRef(id=row.agent_id, name=row.agent_name)],
+        check_command=row.check_command,
         run_count=len(row.runs),
         status=row.status,  # type: ignore[arg-type]
         created_at=_iso(row.created_at),
         scores=Scores.model_validate(row.scores) if row.scores else None,
         duration_s=row.duration_s,
         limits=SandboxLimits.model_validate(row.limits),
-        runs=[_to_run(r) for r in row.runs],
+        runs=[_to_run(r, row) for r in row.runs],
         insights=Insights.model_validate(row.insights) if row.insights else None,
     )
 
@@ -194,28 +229,61 @@ class Store:
     def list_summaries(self) -> list[ExperimentSummary]:
         return [e.summary() for e in self.list_all()]
 
-    def model_for(self, experiment_id: str) -> str | None:
+    def run_models(self, experiment_id: str) -> dict[int, str]:
+        """run index -> model id it runs on."""
         with self._session() as s:
             row = self._load(s, experiment_id)
-            return row.model if row else None
+            return {r.index: r.model or row.model for r in row.runs} if row else {}
+
+    def agent_models(self, experiment_id: str) -> dict[str, str]:
+        """agent id -> model id (the key prices are configured by)."""
+        with self._session() as s:
+            row = self._load(s, experiment_id)
+            if row is None:
+                return {}
+            return {a["id"]: a["model"] for a in row.agents} if row.agents else {row.agent_id: row.model}
 
     # ---- writes ----
 
     def create(
-        self, *, repo: str, task: str, agent: Agent, runs: int, limits: SandboxLimits
+        self,
+        *,
+        repo: str,
+        task: str,
+        agents: list[Agent],
+        runs: int,
+        limits: SandboxLimits,
+        check_command: str | None = None,
     ) -> Experiment:
+        """`runs` per model; run indexes are model by model (1..runs = first model, ...)."""
+        first = agents[0]
+        run_rows = [
+            RunRow(
+                index=m * runs + i,
+                status="queued",
+                steps=[],
+                diff=[],
+                agent_id=a.id,
+                agent_name=a.name,
+                model=a.model,
+            )
+            for m, a in enumerate(agents)
+            for i in range(1, runs + 1)
+        ]
         with self._session() as s, s.begin():
             row = ExperimentRow(
                 title=derive_title(task),
                 task=task,
                 repo=repo,
-                agent_id=agent.id,
-                agent_name=agent.name,
-                model=agent.model,
+                agent_id=first.id,
+                agent_name=first.name if len(agents) == 1 else f"{first.name} +{len(agents) - 1}",
+                model=first.model,
+                agents=[{"id": a.id, "name": a.name, "model": a.model} for a in agents],
+                check_command=check_command or None,
                 status="queued",
                 created_at=datetime.now(UTC).replace(tzinfo=None),
                 limits=limits.model_dump(),
-                runs=[RunRow(index=i, status="queued", steps=[], diff=[]) for i in range(1, runs + 1)],
+                runs=run_rows,
             )
             s.add(row)
             s.flush()
@@ -236,6 +304,8 @@ class Store:
             for key, value in fields.items():
                 if key == "diff":
                     value = [d.model_dump() for d in value]
+                elif key == "check":
+                    key, value = "check_result", value.model_dump() if value is not None else None
                 setattr(run, key, value)
 
     def append_step(self, experiment_id: str, index: int, step: TraceStep) -> None:

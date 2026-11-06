@@ -9,7 +9,7 @@ when cancelled (asyncio.CancelledError) — that is the "destroyed after" promis
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.models.schemas import FileDiff, LogLevel, RunOutcome, SandboxLimits
+from app.models.schemas import FileDiff, LogLevel, RunCheck, RunOutcome, SandboxLimits
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,8 @@ class RunSpec:
     task: str
     model: str
     limits: SandboxLimits
+    #: Run after the agent to decide pass/fail, e.g. "pytest -q". None = trust the agent's "done".
+    check_command: str | None = None
 
 
 @dataclass
@@ -30,6 +32,11 @@ class RunResult:
     tests_total: int | None = None
     exit_reason: str | None = None
     answer: str | None = None
+    check: RunCheck | None = None
+    tampered: list[str] = field(default_factory=list)
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    llm_calls: int | None = None
 
     @classmethod
     def killed(cls, reason: str) -> "RunResult":

@@ -66,7 +66,10 @@ class OpenAICompatibleClient:
         while True:
             try:
                 data = await self._post("chat/completions", body)
-                return data["choices"][0]["message"]
+                message = dict(data["choices"][0]["message"])
+                if isinstance(data.get("usage"), dict):
+                    message["usage"] = data["usage"]  # token counts; stripped before the next request
+                return message
             except LLMError as err:
                 if err.status == 429 and rate_limited_s < MAX_RATE_LIMIT_WAIT_S:
                     # Jitter so parallel runs don't all retry in the same instant.
