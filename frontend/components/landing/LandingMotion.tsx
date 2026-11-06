@@ -15,8 +15,10 @@ export function LandingMotion() {
       return;
     }
 
-    const blocks = Array.from(root.querySelectorAll(".statrow, .sec .sechead, .steps, .why, .flow, .finalcta"));
-    for (const group of root.querySelectorAll(".steps, .why, .flow, .statrow")) {
+    const blocks = Array.from(
+      root.querySelectorAll(".statrow, .sec .sechead, .splithead, .chapter, .figs, .flow, .ctainner"),
+    );
+    for (const group of root.querySelectorAll(".figs, .flow, .statrow")) {
       let i = 0;
       for (const kid of Array.from(group.children) as HTMLElement[]) {
         if (kid.classList.contains("farrow")) continue;
@@ -67,7 +69,11 @@ export function LiveStatus() {
     };
   }, []);
   const label =
-    state === "checking" ? "CHECKING SYSTEMS…" : state === "ok" ? "ALL SYSTEMS OPERATIONAL" : "ORCHESTRATOR UNREACHABLE";
+    state === "checking"
+      ? "CHECKING SYSTEMS…"
+      : state === "ok"
+        ? "ALL SYSTEMS OPERATIONAL"
+        : "ORCHESTRATOR UNREACHABLE";
   return (
     <span className="l" role="status">
       <span className={`dt ${state === "ok" ? "ok" : state === "down" ? "down" : ""}`} aria-hidden />
