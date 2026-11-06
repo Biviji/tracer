@@ -22,11 +22,14 @@ services:
         required: false
     environment:
       DB_URL: sqlite:////data/trace.db
+      DEMO_REPO_DIR: /demo-repo
     volumes:
       - trace-data:/data
       # Lets the orchestrator start/destroy sandbox containers (SANDBOX_DRIVER=docker).
       # Only the orchestrator gets this; sandboxes get no socket, no network, no secrets.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Built-in demo project (repo field: "demo").
+      - ./demo-repo:/demo-repo:ro
     # Group that owns docker.sock: 0 on Docker Desktop; on a Linux VM use
     # DOCKER_GID=$(stat -c %g /var/run/docker.sock) in .env
     group_add:

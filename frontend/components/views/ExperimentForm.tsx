@@ -20,8 +20,8 @@ export function ExperimentForm() {
   const router = useRouter();
   const agents = useApi("agents", api.listAgents);
 
-  const [repo, setRepo] = useState("github.com/example/backend");
-  const [task, setTask] = useState("Fix the failing authentication regression test in the JWT middleware.");
+  const [repo, setRepo] = useState("demo");
+  const [task, setTask] = useState("Run the test suite, find why tests fail and fix the code. Don't change the tests.");
   const [agentId, setAgentId] = useState<string | null>(null);
   const [runs, setRuns] = useState<number>(DEFAULT_RUN_COUNT);
   const [submitting, setSubmitting] = useState(false);
@@ -67,7 +67,12 @@ export function ExperimentForm() {
             onChange={(e) => setRepo(e.target.value)}
             spellCheck={false}
             required
+            aria-describedby="repo-hint"
           />
+          <p id="repo-hint" className="mt-1 text-[11px] text-muted">
+            A public repo on GitHub, GitLab, Bitbucket or Codeberg, or <code>demo</code> for the built-in buggy shop
+            library.
+          </p>
         </div>
 
         <div className="mb-[18px]">
