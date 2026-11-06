@@ -79,8 +79,20 @@ agent loop:                                    no-new-privileges · user "agent"
   tool call → one docker exec  ──────────────▶ list_files · read_file · write_file · run_command
   result → back to the model   ◀────────────── (each command time-capped; tests can run)
 git diff + final answer        ◀──────────────
+check: fresh container, test files restored, deps unchanged → run CHECK (e.g. pytest -q)
 destroy containers + volume (always: done, timeout, cancel, crash)
 ```
+
+**What counts as a pass.** With a check command (e.g. `pytest -q`), a run passes only if the check
+exits 0 in a fresh, offline container after the agent is gone, with any test files / test config
+the agent touched put back to the original. A run that changed tests, test config or the installed
+dependencies is flagged **tampered** and never passes. Without a check command, PASS only means
+"the agent said it was done" and the report says UNVERIFIED.
+
+**Comparing models.** Pick up to 4 models; each gets the same number of runs on the same task and
+check. The report shows per model: checked pass rate, average time, tokens, and cost per correct
+fix (when `MODEL_PRICES` is set). Runs are also grouped by what they did — the same fix, a
+different fix, edited the tests, changed nothing, ran out of steps, killed.
 
 The AI never gets a shell of its own, a network connection or a secret: it can only ask for
 one of four actions, and every action runs inside a box that is deleted afterwards.
