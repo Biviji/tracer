@@ -138,3 +138,12 @@ def test_live_snapshot_reflects_current_state(tmp_path):
     events = [e.model_dump(by_alias=True) for e in snapshot(exp)]
     assert [e["type"] for e in events] == ["run.status", "run.status", "experiment.status"]
     assert events[-1] == {"type": "experiment.status", "status": "completed", "message": "SANDBOXES DESTROYED"}
+
+
+def test_hourly_run_cap_refuses_with_429(tmp_path):
+    with make_client(tmp_path, max_runs_per_hour=5) as client:
+        create(client, runs=3)
+        res = client.post("/experiments", json={"repo": "demo-repo", "task": TASK, "agentId": "fake", "runs": 3})
+        assert res.status_code == 429
+        assert "Hourly limit" in res.json()["detail"]
+        create(client, runs=2)  # still fits under the cap

@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     sim_step_s: float = Field(default=0.5, ge=0)
     max_runs: int = Field(default=10, ge=1)
     max_parallel_sandboxes: int = Field(default=4, ge=1)
+    #: Spend guard for a public deployment: total runs (all experiments) allowed per rolling hour.
+    #: 0 = unlimited.
+    max_runs_per_hour: int = Field(default=0, ge=0)
     sandbox_timeout_s: int = Field(default=300, ge=1)
     sandbox_memory_mb: int = Field(default=1024, ge=64)
     sandbox_cpus: float = Field(default=1.0, gt=0)

@@ -43,6 +43,10 @@ class Invalid(Exception):
     pass
 
 
+class Busy(Exception):
+    """The spend guard (MAX_RUNS_PER_HOUR) refused a new experiment."""
+
+
 class _Reporter:
     """What a driver uses to report progress for one run. Persists and publishes."""
 
@@ -78,6 +82,7 @@ class ExperimentManager:
         self._bus = bus
         self._driver = driver
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._recent_runs: list[tuple[float, int]] = []  # (monotonic time, runs) for the hourly cap
 
     # ---------- public ----------
 
@@ -93,6 +98,7 @@ class ExperimentManager:
             raise Invalid(f"Unknown agent {req.agent_id}")
         if req.runs > self._settings.max_runs:
             raise Invalid(f"runs must be between 1 and {self._settings.max_runs}")
+        self._check_hourly_cap(req.runs)
 
         exp = self._store.create(repo=req.repo, task=req.task, agent=agent, runs=req.runs, limits=self.limits())
         task = asyncio.create_task(self._execute(exp), name=f"experiment {exp.id}")
@@ -100,6 +106,17 @@ class ExperimentManager:
         task.add_done_callback(lambda _: self._tasks.pop(exp.id, None))
         log.info("experiment %s created: %d runs on %s", exp.id, req.runs, agent.model)
         return exp.summary()
+
+    def _check_hourly_cap(self, runs: int) -> None:
+        cap = self._settings.max_runs_per_hour
+        if not cap:
+            return
+        now = time.monotonic()
+        self._recent_runs = [(t, n) for t, n in self._recent_runs if now - t < 3600]
+        used = sum(n for _, n in self._recent_runs)
+        if used + runs > cap:
+            raise Busy(f"Hourly limit reached ({used}/{cap} runs used). Try again later or with fewer runs.")
+        self._recent_runs.append((now, runs))
 
     async def cancel(self, experiment_id: str) -> None:
         exp = self._store.get(experiment_id)

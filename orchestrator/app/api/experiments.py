@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Response
 
 from app.api.deps import Deps
-from app.manager import Invalid, NotFound
+from app.manager import Busy, Invalid, NotFound
 from app.models.schemas import CreateExperimentRequest, Experiment, ExperimentSummary
 
 router = APIRouter(prefix="/experiments")
@@ -20,6 +20,8 @@ async def create_experiment(req: CreateExperimentRequest, deps: Deps) -> Experim
         return await deps.manager.create(req)
     except Invalid as err:
         raise HTTPException(422, str(err)) from err
+    except Busy as err:
+        raise HTTPException(429, str(err)) from err
 
 
 @router.get("/{experiment_id}", response_model=Experiment)

@@ -1,10 +1,11 @@
 # Deploying TRACE on a server (Vultr VM or any Ubuntu box)
 
 Everything runs with Docker Compose. Caddy is the only public service: it gets an HTTPS
-certificate automatically and asks for a password before anything else loads.
+certificate automatically. The site is open to anyone; `MAX_RUNS_PER_HOUR` caps how many
+runs (and so how much model spend) the public can trigger.
 
 ```
-Internet ──HTTPS──▶ caddy (80/443, password) ──▶ frontend ──/api──▶ orchestrator ──▶ sandboxes
+Internet ──HTTPS──▶ caddy (80/443) ──▶ frontend ──/api──▶ orchestrator ──▶ sandboxes
                                                                         └──▶ Vultr Serverless Inference
 ```
 
@@ -44,8 +45,7 @@ Set at least:
 | `SANDBOX_DRIVER` | `docker` |
 | `DOCKER_GID` | output of `stat -c %g /var/run/docker.sock` |
 | `SITE_ADDRESS` | your domain, or `<ip-with-dashes>.sslip.io` (e.g. `144-202-16-76.sslip.io`) |
-| `BASIC_AUTH_USER` | login name, e.g. `trace` |
-| `BASIC_AUTH_HASH` | `'<hash>'` in **single quotes**, from: `docker run --rm caddy:2.8.4 caddy hash-password --plaintext 'your-password'` |
+| `MAX_RUNS_PER_HOUR` | spend guard for the public site, e.g. `30` (0 = unlimited) |
 
 ## 5. Start
 
@@ -54,7 +54,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 docker compose logs -f orchestrator     # should say: sandbox=docker inference=... api.vultrinference.com
 ```
 
-Open `https://<SITE_ADDRESS>` and log in.
+Open `https://<SITE_ADDRESS>`.
 
 ## Update / stop / remove
 
