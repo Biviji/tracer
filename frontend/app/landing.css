@@ -98,25 +98,80 @@
 @keyframes hb-drift1 { to { transform: translate(-90px, 70px) scale(1.15); } }
 @keyframes hb-drift2 { to { transform: translate(80px, -60px) scale(0.85); } }
 
-/* one task fanning out into diverging runs */
-.landing .herobg .fan { position: absolute; right: 0; top: 0; height: 100%; width: min(46%, 640px); overflow: visible; color: var(--ink); }
-.landing .herobg .fan .trail { fill: none; stroke: var(--ink); stroke-width: 1.2; opacity: 0.22; stroke-dasharray: 1400; stroke-dashoffset: 1400; animation: hb-draw 9s cubic-bezier(0.6, 0, 0.2, 1) infinite; }
-.landing .herobg .fan .fail .trail { stroke: var(--red); opacity: 0.5; }
-.landing .herobg .fan .end { fill: var(--ink); opacity: 0.35; }
-.landing .herobg .fan .fail .end { fill: var(--red); opacity: 0.9; }
-.landing .herobg .fan .pulse { color: var(--ink); }
-.landing .herobg .fan .fail .pulse { color: var(--red); }
-.landing .herobg .fan .origin { fill: var(--red); }
-.landing .herobg .fan .ring { fill: none; stroke: var(--ink); stroke-width: 1; opacity: 0; transform-box: fill-box; transform-origin: center; animation: hb-ripple 6s ease-out infinite; }
-@keyframes hb-draw {
-  0% { stroke-dashoffset: 1400; }
-  45%, 80% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: -1400; }
+/* shining abstract shapes */
+.landing .herobg .shape { position: absolute; will-change: transform; }
+/* glossy morphing blob */
+.landing .herobg .blob {
+  width: 260px; height: 260px; right: 5%; top: 10%;
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.55), transparent 22%),
+    radial-gradient(circle at 70% 75%, color-mix(in srgb, #ffb36b 70%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--red), #7a1414 70%);
+  box-shadow: inset -20px -30px 60px rgba(0, 0, 0, 0.45), inset 14px 18px 40px rgba(255, 255, 255, 0.18), 0 0 90px color-mix(in srgb, var(--red) 45%, transparent);
+  opacity: 0.72;
+  animation: hb-morph 14s ease-in-out infinite, hb-float 18s ease-in-out infinite;
 }
-@keyframes hb-ripple {
-  0% { opacity: 0; transform: scale(0.3); }
-  20% { opacity: 0.25; }
-  100% { opacity: 0; transform: scale(1.4); }
+@keyframes hb-morph {
+  0%, 100% { border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%; }
+  33% { border-radius: 63% 37% 41% 59% / 58% 36% 64% 42%; }
+  66% { border-radius: 36% 64% 52% 48% / 46% 62% 38% 54%; }
+}
+@keyframes hb-float {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  50% { transform: translate(-30px, 26px) rotate(24deg); }
+}
+/* spinning light ring */
+.landing .herobg .ring {
+  width: 230px; height: 230px; right: 30%; top: 42%; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 15%, #ffd7a8 25%, var(--red) 40%, transparent 55%, color-mix(in srgb, #8fa0ff 80%, transparent) 75%, transparent 90%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--red) 70%, transparent));
+  opacity: 0.8;
+  animation: hb-spin 9s linear infinite;
+}
+@keyframes hb-spin { to { transform: rotate(360deg); } }
+/* glass prism with a light sweep */
+.landing .herobg .prism {
+  width: 120px; height: 120px; right: 4%; top: 52%; border-radius: 26px; overflow: hidden;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  animation: hb-tumble 16s ease-in-out infinite;
+}
+.landing .herobg .prism::after {
+  content: ""; position: absolute; inset: -40%;
+  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.55) 50%, transparent 60%);
+  animation: hb-shine 4.5s ease-in-out infinite;
+}
+@keyframes hb-tumble {
+  0%, 100% { transform: translate(0, 0) rotate(12deg); }
+  50% { transform: translate(-18px, -30px) rotate(-14deg); }
+}
+@keyframes hb-shine { 0%, 55% { transform: translateX(-60%); } 100% { transform: translateX(60%); } }
+/* small glowing capsule */
+.landing .herobg .pill {
+  width: 140px; height: 44px; right: 40%; top: 12%; border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, #8fa0ff 55%, transparent), color-mix(in srgb, var(--red) 70%, transparent));
+  box-shadow: 0 0 40px color-mix(in srgb, #8fa0ff 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  opacity: 0.55; filter: blur(0.3px);
+  animation: hb-bob 11s ease-in-out infinite;
+}
+@keyframes hb-bob {
+  0%, 100% { transform: translate(0, 0) rotate(-18deg); }
+  50% { transform: translate(24px, 18px) rotate(-6deg); }
+}
+/* twinkling four-point sparkles */
+.landing .herobg .spark {
+  position: absolute; background: #fff;
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.9));
+  animation: hb-twinkle 3.6s ease-in-out infinite;
+}
+@keyframes hb-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.3) rotate(0deg); }
+  50% { opacity: 0.9; transform: scale(1) rotate(45deg); }
 }
 
 .landing .herobg .scan {
@@ -450,14 +505,15 @@ html:has(.landing):not(.lenis) { scroll-behavior: smooth; }
   html:has(.landing) { scroll-behavior: auto; }
   .landing .eyebrow .dot { animation: none; }
   .landing .herobg *, .landing .hero > * { animation: none !important; }
-  .landing .herobg .scan, .landing .herobg .pulse { display: none; }
-  .landing .herobg .fan .trail { stroke-dashoffset: 0; }
+  .landing .herobg .scan { display: none; }
   .landing :is(.reveal, .stag) { opacity: 1 !important; transform: none !important; transition: none !important; }
   .landing .dcell .b i { transition: none; width: 100%; }
 }
 
 @media (max-width: 820px) {
-  .landing .herobg .fan { width: 100%; opacity: 0.6; }
+  .landing .herobg .shape { opacity: 0.45; }
+  .landing .herobg .blob { width: 200px; height: 200px; right: -40px; }
+  .landing .herobg :is(.ring, .pill) { display: none; }
   .landing .hide-sm { display: none; }
   .landing .herogrid { grid-template-columns: 1fr; align-items: start; gap: 24px; }
   .landing .demogrid { grid-template-columns: 1fr 1fr; }

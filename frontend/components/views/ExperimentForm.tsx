@@ -114,15 +114,7 @@ export function ExperimentForm() {
             New to TRACE?{" "}
             <WorkflowDemoButton className="underline decoration-accent decoration-2 underline-offset-2">
               See how it works in 5 steps
-            </WorkflowDemoButton>{" "}
-            or{" "}
-            <button
-              type="button"
-              onClick={tour.start}
-              className="underline decoration-accent decoration-2 underline-offset-2"
-            >
-              replay the tour
-            </button>
+            </WorkflowDemoButton>
           </p>
           {!isDemo && (
             <button
