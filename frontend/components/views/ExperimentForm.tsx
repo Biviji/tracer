@@ -105,7 +105,7 @@ export function ExperimentForm() {
           ) : !agents.data ? (
             <p className="text-muted">Loading models…</p>
           ) : (
-            <div role="radiogroup" className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
+            <div role="radiogroup" className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {agents.data.map((a) => {
                 const on = a.id === selectedAgent;
                 return (
@@ -115,14 +115,14 @@ export function ExperimentForm() {
                     role="radio"
                     aria-checked={on}
                     onClick={() => setAgentId(a.id)}
-                    className={`flex items-start gap-2.5 border-2 border-line p-3 text-left ${
+                    className={`flex min-w-0 items-start gap-2.5 border-2 border-line p-3 text-left ${
                       on ? "bg-paper outline-3 -outline-offset-2 outline-ink" : "bg-card"
                     }`}
                   >
                     <span className="mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border-2 border-ink">
                       {on && <span className="size-[7px] rounded-full bg-accent" />}
                     </span>
-                    <span>
+                    <span className="min-w-0 [overflow-wrap:anywhere]">
                       <b className="font-display tracking-[.03em]">{a.name}</b>
                       <small className="mt-[3px] block text-[11px] leading-normal text-muted">{a.description}</small>
                     </span>
