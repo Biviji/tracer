@@ -1,5 +1,7 @@
 "use client";
 
+import { Spinner } from "@/components/ui/StateBlock";
+
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
@@ -41,7 +43,12 @@ export function ExperimentForm() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const created = await api.createExperiment({ repo: repo.trim(), task: task.trim(), agentId: selectedAgent, runs });
+      const created = await api.createExperiment({
+        repo: repo.trim(),
+        task: task.trim(),
+        agentId: selectedAgent,
+        runs,
+      });
       router.push(`/experiments/${created.id}`);
     } catch (err) {
       setSubmitError(errorMessage(err));
@@ -63,10 +70,10 @@ export function ExperimentForm() {
         <aside className="mb-[22px] border-2 border-accent bg-card p-4 text-[13px] leading-relaxed">
           <p className="mb-1.5 text-[11px] uppercase tracking-[0.12em] text-accent">First time here? Try the demo</p>
           <p>
-            To see how TRACE works without hunting for a repo, keep <code>demo</code> below and press{" "}
-            <b>Launch</b> at the bottom. It&apos;s a small Python shop library with four planted bugs and 9 failing tests —
-            one of them a trap that naive fixes fall into. Each run gets its own sandbox; results show up live in about
-            a minute, and you&apos;ll see which runs fixed it, which didn&apos;t, and what each one changed.
+            To see how TRACE works without hunting for a repo, keep <code>demo</code> below and press <b>Launch</b> at
+            the bottom. It&apos;s a small Python shop library with four planted bugs and 9 failing tests — one of them a
+            trap that naive fixes fall into. Each run gets its own sandbox; results show up live in about a minute, and
+            you&apos;ll see which runs fixed it, which didn&apos;t, and what each one changed.
           </p>
           {!isDemo && (
             <button
@@ -115,7 +122,9 @@ export function ExperimentForm() {
             aria-invalid={taskTooShort}
           />
           {taskTooShort && (
-            <p className="mt-1 text-[11px] text-fail-line">Describe the task in at least {MIN_TASK_LENGTH} characters.</p>
+            <p className="mt-1 text-[11px] text-fail-line">
+              Describe the task in at least {MIN_TASK_LENGTH} characters.
+            </p>
           )}
         </div>
 
@@ -186,15 +195,26 @@ export function ExperimentForm() {
           <div>
             <b className="font-display tracking-[.03em]">Isolated, disposable sandboxes</b>
             <p className="mt-1 text-[11.5px] leading-[1.55] text-muted">
-              Each run gets a fresh container on a Vultr VM from the same image: no API keys inside, no network
-              egress, hard CPU / memory / time caps. Sandboxes are destroyed after results are collected. No run
-              can see another.
+              Each run gets a fresh container on a Vultr VM from the same image: no API keys inside, no network egress,
+              hard CPU / memory / time caps. Sandboxes are destroyed after results are collected. No run can see
+              another.
             </p>
           </div>
         </div>
 
         <button type="submit" className="btn-primary" disabled={!canSubmit}>
-          {submitting ? "SPAWNING SANDBOXES…" : `LAUNCH ${runs} PARALLEL RUNS`} <span aria-hidden>→</span>
+          {submitting ? (
+            <>
+              <span className="flex items-center gap-3">
+                <Spinner size={18} /> SPAWNING SANDBOXES…
+              </span>
+              <span />
+            </>
+          ) : (
+            <>
+              LAUNCH {runs} PARALLEL RUNS <span aria-hidden>→</span>
+            </>
+          )}
         </button>
         {submitError && (
           <p role="alert" className="mt-3 border-2 border-fail-line bg-fail-bg p-3 text-fail-line">

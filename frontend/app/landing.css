@@ -69,7 +69,75 @@
 .landing a.navbtn:hover { background: var(--red); color: #fff; border-color: var(--red); }
 
 /* hero */
-.landing .hero { padding-block: 46px 40px; }
+.landing .hero { padding-block: 46px 40px; position: relative; z-index: 1; }
+
+/* hero backdrop: decorative motion behind the hero */
+.landing .herowrap { position: relative; overflow: hidden; isolation: isolate; }
+.landing .herobg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.landing .herobg .grid {
+  position: absolute; inset: -60px;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: hb-pan 22s linear infinite;
+  mask-image: radial-gradient(ellipse 70% 60% at 75% 30%, #000 10%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 75% 30%, #000 10%, transparent 75%);
+}
+@keyframes hb-pan { to { transform: translate(60px, 60px); } }
+
+.landing .herobg .rings { position: absolute; right: 8%; top: 18%; width: 0; height: 0; }
+.landing .herobg .rings i {
+  position: absolute; left: -170px; top: -170px; width: 340px; height: 340px;
+  border: 2px solid var(--red); opacity: 0; transform: scale(0.15);
+  animation: hb-ring 6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.landing .herobg .rings i:nth-child(2) { animation-delay: -2s; }
+.landing .herobg .rings i:nth-child(3) { animation-delay: -4s; }
+.landing .herobg .rings b {
+  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; background: var(--red);
+  animation: hb-core 3s ease-in-out infinite;
+}
+@keyframes hb-ring {
+  0% { opacity: 0; transform: scale(0.1) rotate(0deg); }
+  15% { opacity: 0.35; }
+  100% { opacity: 0; transform: scale(1) rotate(45deg); }
+}
+@keyframes hb-core { 50% { transform: rotate(90deg) scale(0.7); } }
+
+.landing .herobg .fsq { position: absolute; animation: hb-float 16s ease-in-out infinite; }
+.landing .herobg .fsq.fill { background: var(--red); opacity: 0.55; }
+.landing .herobg .fsq.ink { background: var(--ink); opacity: 0.18; }
+.landing .herobg .fsq.line { border: 2px solid var(--ink); opacity: 0.22; }
+@keyframes hb-float {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(18px, -26px) rotate(45deg); }
+  50% { transform: translate(-10px, -48px) rotate(90deg); }
+  75% { transform: translate(-22px, -18px) rotate(135deg); }
+}
+
+.landing .herobg .scan {
+  position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--red) 55%, transparent) 30%, color-mix(in srgb, var(--red) 55%, transparent) 70%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--red) 40%, transparent);
+  animation: hb-scan 9s linear infinite; opacity: 0;
+}
+@keyframes hb-scan {
+  0% { transform: translateY(0); opacity: 0; }
+  8% { opacity: 0.7; }
+  60% { opacity: 0.5; }
+  75%, 100% { transform: translateY(820px); opacity: 0; }
+}
+
+/* hero entrance */
+.landing .hero > * { animation: hb-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.landing .hero > :nth-child(2) { animation-delay: 0.08s; }
+.landing .hero > :nth-child(3) { animation-delay: 0.18s; }
+.landing .hero > :nth-child(4) { animation-delay: 0.28s; }
+.landing .hero > :nth-child(5) { animation-delay: 0.36s; }
+@keyframes hb-rise { from { opacity: 0; transform: translateY(18px); } }
+.landing .btn-primary span[aria-hidden] { display: inline-block; transition: transform 0.2s ease; }
+.landing .btn-primary:hover span[aria-hidden] { transform: translateX(5px); }
 .landing .eyebrow { letter-spacing: 0.24em; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
 .landing .eyebrow .dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--red); animation: landing-pulse 2s infinite; }
 @keyframes landing-pulse {
@@ -220,12 +288,16 @@ html:has(.landing) { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) {
   html:has(.landing) { scroll-behavior: auto; }
   .landing .eyebrow .dot { animation: none; }
+  .landing .herobg *, .landing .hero > * { animation: none !important; }
+  .landing .herobg .scan { display: none; }
   .landing :is(.reveal, .stag) { opacity: 1 !important; transform: none !important; transition: none !important; }
   .landing :is(.btn-primary, .btn-ghost, a.navbtn, .steps > div, .feat):hover { transform: none; }
   .landing .dcell .b i { transition: none; width: 100%; }
 }
 
 @media (max-width: 820px) {
+  .landing .herobg .rings { right: 12%; top: 10%; }
+  .landing .herobg .rings i { left: -110px; top: -110px; width: 220px; height: 220px; }
   .landing .hide-sm { display: none; }
   .landing .herogrid { grid-template-columns: 1fr; align-items: start; gap: 24px; }
   .landing .demogrid { grid-template-columns: 1fr 1fr; }

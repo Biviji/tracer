@@ -31,11 +31,51 @@ type ExampleRun = { n: string; pass: boolean; lines: [string, boolean][] };
 
 /** Illustrative: the shape of a real experiment on the built-in demo repo. */
 const EXAMPLE: ExampleRun[] = [
-  { n: "01", pass: true, lines: [["✓ pip install", true], ["✓ fixed 4 bugs", true], ["✓ 16/16 tests", true]] },
-  { n: "02", pass: true, lines: [["✓ pip install", true], ["✓ fixed 4 bugs", true], ["✓ 16/16 tests", true]] },
-  { n: "03", pass: false, lines: [["✓ pip install", true], ["✗ dayfirst=True", false], ["✗ broke ISO dates", false]] },
-  { n: "04", pass: true, lines: [["✓ pip install", true], ["✓ fixed 4 bugs", true], ["✓ 16/16 tests", true]] },
-  { n: "05", pass: false, lines: [["✓ pip install", true], ["✗ edited the tests", false], ["✗ out of budget", false]] },
+  {
+    n: "01",
+    pass: true,
+    lines: [
+      ["✓ pip install", true],
+      ["✓ fixed 4 bugs", true],
+      ["✓ 16/16 tests", true],
+    ],
+  },
+  {
+    n: "02",
+    pass: true,
+    lines: [
+      ["✓ pip install", true],
+      ["✓ fixed 4 bugs", true],
+      ["✓ 16/16 tests", true],
+    ],
+  },
+  {
+    n: "03",
+    pass: false,
+    lines: [
+      ["✓ pip install", true],
+      ["✗ dayfirst=True", false],
+      ["✗ broke ISO dates", false],
+    ],
+  },
+  {
+    n: "04",
+    pass: true,
+    lines: [
+      ["✓ pip install", true],
+      ["✓ fixed 4 bugs", true],
+      ["✓ 16/16 tests", true],
+    ],
+  },
+  {
+    n: "05",
+    pass: false,
+    lines: [
+      ["✓ pip install", true],
+      ["✗ edited the tests", false],
+      ["✗ out of budget", false],
+    ],
+  },
 ];
 
 const STEPS = [
@@ -80,6 +120,44 @@ const FEATURES = [
   },
 ];
 
+/** Decorative, CSS-animated: drifting grid, blast-radius rings, floating squares, a scan line. */
+const SQUARES = [
+  { x: "6%", y: "62%", s: 14, d: 0, k: "fill" },
+  { x: "88%", y: "14%", s: 22, d: -4, k: "line" },
+  { x: "72%", y: "48%", s: 10, d: -9, k: "ink" },
+  { x: "94%", y: "70%", s: 16, d: -2, k: "fill" },
+  { x: "52%", y: "8%", s: 9, d: -6, k: "line" },
+  { x: "38%", y: "86%", s: 12, d: -11, k: "ink" },
+  { x: "18%", y: "20%", s: 8, d: -7, k: "line" },
+  { x: "64%", y: "78%", s: 18, d: -13, k: "line" },
+];
+
+const HeroBackdrop = () => (
+  <div className="herobg" aria-hidden>
+    <div className="grid" />
+    <div className="rings">
+      <i />
+      <i />
+      <i />
+      <b />
+    </div>
+    {SQUARES.map((q, i) => (
+      <span
+        key={i}
+        className={`fsq ${q.k}`}
+        style={{
+          left: q.x,
+          top: q.y,
+          width: q.s,
+          height: q.s,
+          animationDelay: `${q.d}s`,
+        }}
+      />
+    ))}
+    <div className="scan" />
+  </div>
+);
+
 export default function LandingPage() {
   return (
     <div className="landing">
@@ -103,72 +181,76 @@ export default function LandingPage() {
       </header>
 
       <main>
-        <section className="inner hero" id="top">
-          <div className="eyebrow">
-            <span className="dot" aria-hidden />[ AGENT RELIABILITY LAB · BUILT ON VULTR ]
-          </div>
-          <h1>
-            HOW OFTEN
-            <br />
-            DOES YOUR AGENT
-            <br />
-            AGREE WITH{" "}
-            <span className="nowrap">
-              ITSELF<span className="sl">?</span>
-            </span>
-          </h1>
-          <div className="herogrid">
-            <p className="herolede">
-              Teams want coding agents to fix things on their own — failing tests, CI breakages, small issues — but
-              don&apos;t know if they can trust them, or which model is worth paying for. Give an agent the same task
-              twice and it may fix the bug cleanly once and <strong>rewrite the tests</strong> the next. TRACE runs the
-              task many times on your own repo, each run in its own disposable, locked-down sandbox on Vultr, and puts
-              every result side by side — so you see how often the agent succeeds, with numbers instead of vibes.
-            </p>
-            <div className="cta">
-              <Link className="btn-primary" href="/new">
-                RUN AN EXPERIMENT <span aria-hidden>&rarr;</span>
-              </Link>
-              <a className="btn-ghost" href="#how">
-                SEE HOW IT WORKS
-              </a>
+        <div className="herowrap">
+          <HeroBackdrop />
+          <section className="inner hero" id="top">
+            <div className="eyebrow">
+              <span className="dot" aria-hidden />[ AGENT RELIABILITY LAB · BUILT ON VULTR ]
             </div>
-          </div>
-
-          <figure className="demo" aria-label="Example experiment">
-            <div className="dh">
-              EXAMPLE · DEMO REPO · FIX THE FAILING TESTS <span className="tag">5 PARALLEL RUNS</span>
-            </div>
-            <div className="demogrid">
-              {EXAMPLE.map((r) => (
-                <div key={r.n} className={`dcell ${r.pass ? "pass" : "fail"}`}>
-                  <div className="ch">
-                    RUN {r.n}
-                    <span className="st">{r.pass ? "PASS" : "FAIL"}</span>
-                  </div>
-                  <div className="log">
-                    {r.lines.map(([text, ok]) => (
-                      <div key={text} className={ok ? "ok" : "er"}>
-                        {text}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="b">
-                    <i />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <figcaption className="verdict">
-              <span className="rel">3/5</span>
-              <span className="vt">
-                <b>60% RELIABLE.</b> Two runs went their own way: one fixed dates with <b>dayfirst=True</b> and broke ISO
-                dates, one edited the tests. <span style={{ color: "var(--muted)" }}>Not safe to automate yet.</span>
+            <h1>
+              HOW OFTEN
+              <br />
+              DOES YOUR AGENT
+              <br />
+              AGREE WITH{" "}
+              <span className="nowrap">
+                ITSELF<span className="sl">?</span>
               </span>
-            </figcaption>
-          </figure>
-          <p className="note">Illustrative example. Try the real thing with repo “demo”.</p>
-        </section>
+            </h1>
+            <div className="herogrid">
+              <p className="herolede">
+                Teams want coding agents to fix things on their own — failing tests, CI breakages, small issues — but
+                don&apos;t know if they can trust them, or which model is worth paying for. Give an agent the same task
+                twice and it may fix the bug cleanly once and <strong>rewrite the tests</strong> the next. TRACE runs
+                the task many times on your own repo, each run in its own disposable, locked-down sandbox on Vultr, and
+                puts every result side by side — so you see how often the agent succeeds, with numbers instead of vibes.
+              </p>
+              <div className="cta">
+                <Link className="btn-primary" href="/new">
+                  RUN AN EXPERIMENT <span aria-hidden>&rarr;</span>
+                </Link>
+                <a className="btn-ghost" href="#how">
+                  SEE HOW IT WORKS
+                </a>
+              </div>
+            </div>
+
+            <figure className="demo" aria-label="Example experiment">
+              <div className="dh">
+                EXAMPLE · DEMO REPO · FIX THE FAILING TESTS <span className="tag">5 PARALLEL RUNS</span>
+              </div>
+              <div className="demogrid">
+                {EXAMPLE.map((r) => (
+                  <div key={r.n} className={`dcell ${r.pass ? "pass" : "fail"}`}>
+                    <div className="ch">
+                      RUN {r.n}
+                      <span className="st">{r.pass ? "PASS" : "FAIL"}</span>
+                    </div>
+                    <div className="log">
+                      {r.lines.map(([text, ok]) => (
+                        <div key={text} className={ok ? "ok" : "er"}>
+                          {text}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="b">
+                      <i />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <figcaption className="verdict">
+                <span className="rel">3/5</span>
+                <span className="vt">
+                  <b>60% RELIABLE.</b> Two runs went their own way: one fixed dates with <b>dayfirst=True</b> and broke
+                  ISO dates, one edited the tests.{" "}
+                  <span style={{ color: "var(--muted)" }}>Not safe to automate yet.</span>
+                </span>
+              </figcaption>
+            </figure>
+            <p className="note">Illustrative example. Try the real thing with repo “demo”.</p>
+          </section>
+        </div>
 
         <section className="statband" aria-label="At a glance">
           <div className="inner statrow">
@@ -280,7 +362,15 @@ export default function LandingPage() {
             {FEATURES.map((f) => (
               <div key={f.t} className="feat">
                 <div className="ico">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" aria-hidden>
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--red)"
+                    strokeWidth="2"
+                    aria-hidden
+                  >
                     {f.icon}
                   </svg>
                 </div>

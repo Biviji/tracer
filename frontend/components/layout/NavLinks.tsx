@@ -1,14 +1,36 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 
 const ITEMS = [
-  { href: "/experiments", label: "EXPERIMENTS", match: (p: string) => p.startsWith("/experiments") || p.startsWith("/new") },
-  { href: "/overview", label: "OVERVIEW", match: (p: string) => p.startsWith("/overview") },
-  { href: "/compare", label: "COMPARE", match: (p: string) => p.startsWith("/compare") },
-  { href: "/reports", label: "REPORTS", match: (p: string) => p.startsWith("/reports") },
+  {
+    href: "/experiments",
+    label: "EXPERIMENTS",
+    match: (p: string) => p.startsWith("/experiments") || p.startsWith("/new"),
+  },
+  {
+    href: "/overview",
+    label: "OVERVIEW",
+    match: (p: string) => p.startsWith("/overview"),
+  },
+  {
+    href: "/compare",
+    label: "COMPARE",
+    match: (p: string) => p.startsWith("/compare"),
+  },
+  {
+    href: "/reports",
+    label: "REPORTS",
+    match: (p: string) => p.startsWith("/reports"),
+  },
 ] as const;
+
+/** Fixed-size bar that grows while this link's page is loading. */
+function PendingBar() {
+  const { pending } = useLinkStatus();
+  return <span aria-hidden className={`nav-pending ${pending ? "is-pending" : ""}`} />;
+}
 
 function NavList({ pathname }: { pathname: string | null }) {
   return (
@@ -20,11 +42,12 @@ function NavList({ pathname }: { pathname: string | null }) {
             <Link
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-2 border px-2.5 py-2 text-xs tracking-[.08em] desk:py-[11px] ${
+              className={`relative flex items-center gap-2 border px-2.5 py-2 text-xs tracking-[.08em] desk:py-[11px] ${
                 active ? "border-black bg-paper text-ink" : "border-transparent text-[#CFCCC4] hover:text-white"
               }`}
             >
               <span className="text-accent">/</span> {item.label}
+              <PendingBar />
             </Link>
           </li>
         );
