@@ -244,7 +244,15 @@ function finalize(exp: Experiment, at: (ms: number, fn: () => void) => void) {
 export const mockBackend: TraceApi & {
   subscribe(id: string, fn: Listener): () => void;
 } = {
-  health: () => respond({ status: "ok", sandboxDriver: "mock", inference: "mock" }),
+  health: () =>
+    respond({
+      status: "ok",
+      sandboxDriver: "mock",
+      inference: "mock",
+      inferenceOk: true,
+      inferenceReason: null,
+      retryInS: null,
+    }),
 
   listAgents: () => respond(SEED_AGENTS),
 

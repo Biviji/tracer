@@ -1,9 +1,10 @@
-import { formatDuration, pad2, reliabilityBand, reliabilityColor } from "@/lib/format";
+import { formatDuration, interruptedByProvider, pad2, reliabilityBand, reliabilityColor } from "@/lib/format";
 import type { Experiment, ModelScore, RunGroup } from "@/lib/types";
 
 /** Headline: how many runs passed, and whether "pass" was checked or just the agent's word. */
 export function VerdictBanner({ exp }: { exp: Experiment }) {
-  const scored = exp.runs.filter((r) => r.status !== "cancelled");
+  const scored = exp.runs.filter((r) => r.status !== "cancelled" && !interruptedByProvider(r));
+  const interrupted = exp.runs.filter(interruptedByProvider).length;
   const passed = scored.filter((r) => r.status === "pass").length;
   const tampered = scored.filter((r) => r.tampered.length > 0).length;
   const rel = exp.scores?.reliability ?? (scored.length ? Math.round((passed / scored.length) * 100) : 0);
@@ -39,6 +40,13 @@ export function VerdictBanner({ exp }: { exp: Experiment }) {
           </p>
         )}
         {exp.insights?.summary && <p className="text-[13.5px] leading-relaxed">{exp.insights.summary}.</p>}
+        {interrupted > 0 && (
+          <p className="text-[12px] text-warn">
+            {scored.length === 0
+              ? "The model provider was unavailable (out of credits or not responding), so nothing was measured. This is not a result for the model."
+              : `${interrupted} run${interrupted > 1 ? "s were" : " was"} interrupted by a model-provider outage and ${interrupted > 1 ? "aren't" : "isn't"} counted.`}
+          </p>
+        )}
         {tampered > 0 && (
           <p className="text-[12px] text-fail-line">
             ⚠ {tampered} run{tampered > 1 ? "s" : ""} changed the tests or test setup — never counted as a pass.
@@ -155,6 +163,7 @@ const groupStyle: Record<RunGroup["kind"], string> = {
   no_change: "",
   gave_up: "",
   killed: "",
+  interrupted: "border-dashed",
 };
 
 /** What the runs actually did: same fix grouped together, cheating and failures called out. */
@@ -166,7 +175,16 @@ export function RunGroups({ groups, onOpen }: { groups: RunGroup[]; onOpen?: (ru
       <div className="grid gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
         {groups.map((g) => {
           const pass = g.kind === "fix" && g.passed === g.runs.length;
-          const mark = g.kind === "tampered" ? "⚠" : pass ? "✓" : g.kind === "fix" && g.passed ? "◐" : "✗";
+          const mark =
+            g.kind === "tampered"
+              ? "⚠"
+              : g.kind === "interrupted"
+                ? "‖"
+                : pass
+                  ? "✓"
+                  : g.kind === "fix" && g.passed
+                    ? "◐"
+                    : "✗";
           return (
             <article
               key={`${g.kind}-${g.runs[0]}`}

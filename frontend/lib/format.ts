@@ -41,6 +41,11 @@ export const reliabilityColor: Record<ReliabilityBand, string> = {
   lo: "text-fail-line",
 };
 
+/** Stopped by a model-provider outage (out of credits, provider down): shown, never scored. */
+export function interruptedByProvider(run: { status: RunStatus; exitReason: string | null }): boolean {
+  return run.status === "error" && (run.exitReason ?? "").startsWith("provider_unavailable");
+}
+
 /** True when the sandbox itself stopped the run (time or memory cap), as opposed to an outside failure. */
 export function killedBySandbox(exitReason: string | null | undefined): boolean {
   return !exitReason || /^(timeout|oom)\b/.test(exitReason);
@@ -54,6 +59,7 @@ export function killedBySandbox(exitReason: string | null | undefined): boolean 
 export function statusLabel(status: RunStatus, exitReason?: string | null): string {
   if (status === "fail" && exitReason === "tampered") return "TAMPERED";
   if (status !== "error") return status.toUpperCase();
+  if ((exitReason ?? "").startsWith("provider_unavailable")) return "PROVIDER DOWN";
   return killedBySandbox(exitReason) ? "KILLED" : "ERROR";
 }
 

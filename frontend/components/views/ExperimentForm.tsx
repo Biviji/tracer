@@ -12,6 +12,7 @@ import { DEFAULT_RUN_COUNT, MAX_MODELS, MAX_TOTAL_RUNS, RUN_COUNT_OPTIONS } from
 import { errorMessage } from "@/lib/errors";
 import { rememberOwner } from "@/lib/owner";
 import { useApi } from "@/lib/hooks/useApi";
+import { useHealth } from "@/lib/hooks/useHealth";
 import { LockIcon } from "../ContainmentStrip";
 import { DottedRule, PageHeader } from "../ui/PageHeader";
 
@@ -66,6 +67,9 @@ const DEMO_CHECK = "pytest -q";
 export function ExperimentForm() {
   const router = useRouter();
   const agents = useApi("agents", api.listAgents);
+  const { health } = useHealth();
+  // Only a confirmed outage blocks launching; an unreachable /health is left to the submit error.
+  const providerDown = health?.inferenceOk === false;
 
   const tour = useFirstVisitTour("trace-tour-new-v1");
   const [repo, setRepo] = useState(DEMO_REPO);
@@ -81,7 +85,8 @@ export function ExperimentForm() {
   const total = runs * selected.length;
   const tooMany = total > MAX_TOTAL_RUNS;
   const taskTooShort = task.trim().length < MIN_TASK_LENGTH;
-  const canSubmit = !submitting && repo.trim() !== "" && !taskTooShort && selected.length > 0 && !tooMany;
+  const canSubmit =
+    !submitting && !providerDown && repo.trim() !== "" && !taskTooShort && selected.length > 0 && !tooMany;
 
   function toggle(id: string) {
     const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
@@ -308,6 +313,24 @@ export function ExperimentForm() {
           </div>
         </div>
 
+        {providerDown && (
+          <div role="status" className="mb-3 border-2 border-warn bg-card p-3 text-[12.5px] leading-relaxed">
+            <b className="font-display tracking-[.06em] text-warn">MODEL PROVIDER UNAVAILABLE</b>
+            <p className="mt-1">
+              The AI models can&apos;t be reached right now ({health?.inferenceReason ?? "not responding"}), so
+              launching is paused and no runs will be wasted.
+              {health?.retryInS
+                ? ` Checking again in about ${Math.max(1, Math.round(health.retryInS / 60))} min.`
+                : ""}{" "}
+              Existing{" "}
+              <Link href="/reports" className="underline hover:text-accent">
+                reports
+              </Link>{" "}
+              and the <WorkflowDemoButton className="underline hover:text-accent">walkthrough</WorkflowDemoButton> still
+              work.
+            </p>
+          </div>
+        )}
         <button type="submit" className="btn-primary" disabled={!canSubmit} data-tour="launch">
           {submitting ? (
             <>

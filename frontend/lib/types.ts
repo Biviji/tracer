@@ -103,7 +103,7 @@ export interface FailurePattern {
   runs: number[];
 }
 
-export type RunGroupKind = "fix" | "tampered" | "no_change" | "gave_up" | "killed";
+export type RunGroupKind = "fix" | "tampered" | "no_change" | "gave_up" | "killed" | "interrupted";
 
 /** Runs that did the same thing: the same code change, or the same way of failing. */
 export interface RunGroup {
@@ -210,6 +210,10 @@ export interface Health {
   status: "ok" | "degraded";
   sandboxDriver: string;
   inference: string;
+  /** False while the model provider is down (out of credits, not responding): launching is refused. */
+  inferenceOk: boolean;
+  inferenceReason: string | null;
+  retryInS: number | null;
 }
 
 /* ---------- live stream (SSE /live/:id) ---------- */
