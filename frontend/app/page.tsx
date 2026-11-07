@@ -217,7 +217,11 @@ export default function LandingPage() {
                 <i className="orbit o-a" />
                 <i className="orbit o-b" />
                 <i className="orbit o-c" />
+                <i className="wave" />
+                <i className="wave w2" />
+                <i className="wave w3" />
                 <i className="core" />
+                <i className="corona" />
                 <i className="flare" />
                 {STARS.map(([x, y, d], n) => (
                   <b
