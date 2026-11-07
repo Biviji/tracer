@@ -23,14 +23,12 @@ import asyncio
 import io
 import logging
 import os
-import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import uuid
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
 
 import docker
 from docker.errors import DockerException, NotFound
@@ -40,8 +38,16 @@ from app.agent import run_agent
 from app.agent.loop import Usage
 from app.config import Settings
 from app.llm import LLMClient, LLMError
-from app.models.schemas import DiffLine, FileDiff, RunCheck
+from app.models.schemas import RunCheck
 from app.sandbox.base import PROVIDER_DOWN, RunReporter, RunResult, RunSpec
+from app.sandbox.gitrepo import (
+    SAFE_GIT_CONFIG,
+    CloneError,
+    is_demo,
+    normalize_repo_url,
+    parse_git_diff,
+    snapshot,
+)
 from app.sandbox.verify import parse_test_counts, protected_files, restore_script, tail
 
 log = logging.getLogger(__name__)
@@ -49,8 +55,6 @@ log = logging.getLogger(__name__)
 WORKDIR = "/workspace"
 AGENT_UID = 1000
 LABEL = "trace.sandbox"
-MAX_DIFF_LINES_PER_FILE = 200
-_REPO_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:\d+)?/[\w.@:/~+-]+$")
 #: Setup containers use Docker's default bridge (docker0) with public DNS servers: user-defined
 #: networks force Docker's embedded DNS, which gVisor can't use. Nothing else of TRACE runs on
 #: docker0 (compose has its own network); on a server, deploy/README.md turns off
@@ -58,31 +62,8 @@ _REPO_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:\d+)?/[\w.@:/~+-]+$")
 #: and cloud metadata from it.
 SETUP_NETWORK = "bridge"
 SETUP_DNS = ["1.1.1.1", "8.8.8.8"]
-DEMO_NAMES = {"demo", "demo-repo"}
 #: Installed dependencies and test-run leftovers must not show up in the agent's diff.
 _DEP_DIRS = (".venv/", "node_modules/", "__pycache__/", "*.pyc", ".pytest_cache/")
-
-
-class CloneError(Exception):
-    pass
-
-
-def is_demo(repo: str) -> bool:
-    return repo.strip().lower() in DEMO_NAMES
-
-
-def normalize_repo_url(repo: str, allowed_hosts: set[str] | None = None) -> str:
-    """Accept 'github.com/x/y' or 'https://...' on an allowed host. Anything else
-    (file://, ssh, local paths, internal addresses) is refused."""
-    repo = repo.strip()
-    if not repo.startswith(("https://", "http://")):
-        repo = "https://" + repo
-    if not _REPO_URL.match(repo):
-        raise CloneError("repo must be a public https git URL, e.g. https://github.com/owner/name")
-    host = (urlsplit(repo).hostname or "").lower()
-    if allowed_hosts and "*" not in allowed_hosts and host not in allowed_hosts:
-        raise CloneError(f"repos can only be cloned from {', '.join(sorted(allowed_hosts))} (or use 'demo')")
-    return repo
 
 
 def _clone(url: str, dest: Path, timeout_s: int, max_mb: int) -> None:
@@ -90,12 +71,7 @@ def _clone(url: str, dest: Path, timeout_s: int, max_mb: int) -> None:
     argv = [
         "git",
         # https only, and no redirects: a redirect could lead away from the allowed host.
-        "-c", "protocol.allow=never",
-        "-c", "protocol.https.allow=always",
-        "-c", "http.followRedirects=false",
-        # Check out files exactly as committed: on a Windows host with autocrlf, git inside the
-        # Linux sandbox would otherwise see every file as modified (and flag test files as tampered).
-        "-c", "core.autocrlf=false",
+        *SAFE_GIT_CONFIG,
         "clone", "--depth", "1", "--single-branch", "--no-tags", "--", url, str(dest),
     ]  # fmt: skip
     try:
@@ -115,9 +91,7 @@ def _copy_demo(src: Path, dest: Path) -> None:
     if not (src / "README.md").is_file():
         raise CloneError(f"demo repo not found at {src}")
     shutil.copytree(src, dest, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__", ".pytest_cache"))
-    git = ["git", "-c", "user.email=demo@trace.local", "-c", "user.name=TRACE", "-c", "core.autocrlf=false"]
-    for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "demo repo"]):
-        subprocess.run([*git, *cmd], cwd=dest, check=True, capture_output=True)
+    snapshot(dest, "demo repo")
 
 
 def _head_sha(repo: Path) -> str:
@@ -203,21 +177,6 @@ def _tar_file(name: str, content: str) -> bytes:
     with tarfile.open(fileobj=buf, mode="w") as tar:
         tar.addfile(info, io.BytesIO(data))
     return buf.getvalue()
-
-
-def parse_git_diff(text: str) -> list[FileDiff]:
-    files: list[FileDiff] = []
-    current: FileDiff | None = None
-    for line in text.splitlines():
-        if line.startswith("diff --git "):
-            path = line.split(" b/", 1)[-1]
-            current = FileDiff(file=path, lines=[])
-            files.append(current)
-        elif current is None or line.startswith(("+++", "---")):
-            continue
-        elif line.startswith(("+", "-")) and len(current.lines) < MAX_DIFF_LINES_PER_FILE:
-            current.lines.append(DiffLine(op=line[0], text=line[1:]))  # type: ignore[arg-type]
-    return files
 
 
 class _ContainerWorkspace:

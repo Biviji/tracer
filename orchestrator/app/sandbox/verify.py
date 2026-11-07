@@ -36,6 +36,12 @@ def is_protected(path: str) -> bool:
     return bool(_TEST_NAME.search(p.name) or _TEST_CONFIG.match(p.name)) or ".github" in p.parts
 
 
+def is_test_file(path: str) -> bool:
+    """A test (not test config): what a past fix adds to prove the bug is gone."""
+    p = PurePosixPath(path)
+    return any(part.lower() in _TEST_DIRS for part in p.parts[:-1]) or bool(_TEST_NAME.search(p.name))
+
+
 def protected_files(changed: list[str]) -> list[str]:
     return sorted({f for f in changed if is_protected(f)})
 

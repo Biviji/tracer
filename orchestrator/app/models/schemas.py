@@ -6,7 +6,7 @@ Change a shape here only together with the frontend types.
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -93,6 +93,73 @@ class Run(ApiModel):
     tokens_in: int | None = None
     tokens_out: int | None = None
     llm_calls: int | None = None
+    #: Past-bug replay: which bug (ReplayCase.id) this run attempted.
+    case_id: str | None = None
+
+
+# ---------- past-bug replay ----------
+
+ExperimentMode = Literal["task", "replay"]
+CaseStatus = Literal["pending", "valid", "invalid"]
+
+
+class ReplayCandidate(ApiModel):
+    """A past commit that fixed a bug and added or changed a test: a ready-made exam."""
+
+    id: str  # short sha
+    sha: str
+    title: str
+    date: str
+    source_files: list[str]
+    test_files: list[str]
+    lines_changed: int
+
+
+class ReplayCaseView(ReplayCandidate):
+    """A bug in an experiment, as the UI sees it (hidden test contents are not sent)."""
+
+    task: str
+    #: What the engineer changed in the code (test files excluded): the answer key.
+    human_diff: list[FileDiff] = []
+    #: valid = the hidden test fails before the fix and passes with it; only then does it count.
+    status: CaseStatus = "pending"
+    reason: str | None = None
+
+
+class ReplayCase(ReplayCaseView):
+    """Internal: everything a run needs. Never returned by the API."""
+
+    parent: str
+    #: Test files at the fix commit: written into the sandbox only when checking, never shown to the agent.
+    hidden_tests: dict[str, str]
+    #: Source files at the fix commit (None = the fix deleted it): used to validate the case.
+    fix_files: dict[str, str | None]
+
+    def view(self) -> ReplayCaseView:
+        return ReplayCaseView.model_validate(self.model_dump(include=set(ReplayCaseView.model_fields)))
+
+
+class ScanResult(ApiModel):
+    repo: str
+    commits_scanned: int
+    candidates: list[ReplayCandidate]
+
+
+class CaseModelScore(ApiModel):
+    agent_id: str
+    agent_name: str
+    runs: int
+    passed: int
+    #: Passing runs whose change matches the engineer's fix (same files, mostly the same lines).
+    same_as_human: int
+
+
+class CaseScore(ApiModel):
+    case_id: str
+    title: str
+    status: CaseStatus
+    reason: str | None = None
+    models: list[CaseModelScore] = []
 
 
 # ---------- experiments ----------
@@ -142,6 +209,10 @@ class ModelScore(ApiModel):
     #: Only when a price is configured for the model (MODEL_PRICES).
     cost_usd: float | None
     cost_per_pass_usd: float | None
+    #: Past-bug replay only: valid bugs, bugs with at least one passing run, bugs passed reliably (>= 80% of runs).
+    bugs_total: int | None = None
+    bugs_fixed: int | None = None
+    bugs_reliable: int | None = None
 
 
 class Insights(ApiModel):
@@ -151,6 +222,8 @@ class Insights(ApiModel):
     summary: str | None = None
     groups: list[RunGroup] = []
     models: list[ModelScore] = []
+    #: Past-bug replay: one row per bug, results per model.
+    cases: list[CaseScore] = []
 
 
 class AgentRef(ApiModel):
@@ -162,6 +235,8 @@ class ExperimentSummary(ApiModel):
     id: str
     title: str
     task: str
+    #: "task": one task you wrote. "replay": the repo's own past bug fixes, re-done by each model.
+    mode: ExperimentMode = "task"
     repo: str
     #: First model; kept for older clients. `agents` lists every model in the experiment.
     agent_id: str
@@ -186,12 +261,18 @@ class Experiment(ExperimentSummary):
     limits: SandboxLimits
     runs: list[Run]
     insights: Insights | None = None
+    #: Past-bug replay: the bugs being re-done.
+    cases: list[ReplayCaseView] = []
 
     def summary(self) -> ExperimentSummary:
         return ExperimentSummary.model_validate(self.model_dump(include=set(ExperimentSummary.model_fields)))
 
 
 Trimmed = Annotated[str, StringConstraints(strip_whitespace=True)]
+
+
+class ScanRequest(ApiModel):
+    repo: Annotated[Trimmed, Field(min_length=1, max_length=500)]
 
 
 class CreateExperimentRequest(ApiModel):
@@ -203,6 +284,17 @@ class CreateExperimentRequest(ApiModel):
     runs: int = Field(ge=1)  # runs PER MODEL; upper bounds come from settings
     #: Run after each agent finishes, e.g. "pytest -q". Empty = PASS means "the agent finished".
     check_command: Annotated[Trimmed, Field(max_length=300)] | None = None
+    mode: ExperimentMode = "task"
+    #: Replay: which past fixes to re-do (ids from POST /replay/scan). `runs` is then per bug per model.
+    case_ids: list[Annotated[Trimmed, Field(min_length=4, max_length=40)]] = Field(default=[], max_length=10)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _replay_needs_no_task(cls, data: object) -> object:
+        # Each past bug brings its own task (the fix's commit message).
+        if isinstance(data, dict) and data.get("mode") == "replay" and not data.get("task"):
+            return {**data, "task": "Re-do past bug fixes from this repository"}
+        return data
 
     def model_ids(self) -> list[str]:
         ids = list(dict.fromkeys(self.agent_ids or ([self.agent_id] if self.agent_id else [])))
