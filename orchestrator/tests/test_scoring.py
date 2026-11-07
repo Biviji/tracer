@@ -45,3 +45,21 @@ def test_cancelled_runs_are_ignored():
     runs = [run(1, "pass", SAME), run(2, "cancelled", [])]
     s = compute_scores(runs)
     assert (s.reliability, s.divergence_step) == (100, None)
+
+
+def test_provider_outage_runs_are_shown_but_not_scored():
+    from app.scoring import group_runs, score_models, summarize
+
+    runs = [
+        run(1, "pass", SAME),
+        run(2, "error", ["clone"], exit_reason="provider_unavailable (402)"),
+        run(3, "error", [], exit_reason="provider_unavailable"),
+    ]
+    for r in runs:
+        r.agent_id = "m"
+    assert compute_scores(runs).reliability == 100  # not 33%
+    assert score_models(runs)[0].runs == 1
+    groups = group_runs(runs)
+    assert [g.kind for g in groups] == ["fix", "interrupted"]
+    assert groups[1].runs == [2, 3]
+    assert "2 runs interrupted by a model-provider outage" in summarize(groups)

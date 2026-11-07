@@ -112,7 +112,7 @@ class FailurePattern(ApiModel):
     runs: list[int]
 
 
-RunGroupKind = Literal["fix", "tampered", "no_change", "gave_up", "killed"]
+RunGroupKind = Literal["fix", "tampered", "no_change", "gave_up", "killed", "interrupted"]
 
 
 class RunGroup(ApiModel):
@@ -238,6 +238,10 @@ class Health(ApiModel):
     status: Literal["ok", "degraded"]
     sandbox_driver: str
     inference: str
+    #: False while the model provider is down (circuit breaker open, or unreachable): launching is refused.
+    inference_ok: bool = True
+    inference_reason: str | None = None
+    retry_in_s: int | None = None
 
 
 # ---------- live stream (SSE /live/:id) ----------

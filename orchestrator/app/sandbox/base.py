@@ -24,6 +24,11 @@ class RunSpec:
     check_command: str | None = None
 
 
+#: exit_reason prefix of runs stopped because the model provider was down. They are shown but
+#: never scored: an outage says nothing about the model.
+PROVIDER_DOWN = "provider_unavailable"
+
+
 @dataclass
 class RunResult:
     outcome: RunOutcome

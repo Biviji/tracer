@@ -1,19 +1,25 @@
 """Reliability scoring across the runs of one experiment.
 
 Same rules as frontend/lib/mock/scoring.ts (the mock mirrors this module).
-Cancelled runs are excluded: they say nothing about the agent.
+Cancelled runs and runs stopped by a model-provider outage are excluded: they say nothing
+about the agent.
 """
 
 import json
 import string
 
 from app.models.schemas import FailurePattern, Insights, ModelScore, Run, RunGroup, Scores
+from app.sandbox.base import PROVIDER_DOWN
 
 _NO_STEP = "∅"
 
 
+def interrupted(run: Run) -> bool:
+    return run.status == "error" and (run.exit_reason or "").startswith(PROVIDER_DOWN)
+
+
 def _scored(runs: list[Run]) -> list[Run]:
-    return [r for r in runs if r.status != "cancelled"]
+    return [r for r in runs if r.status != "cancelled" and not interrupted(r)]
 
 
 def _label_at(run: Run, step: int) -> str:
@@ -83,6 +89,8 @@ def _same_fix(a: Run, b: Run) -> bool:
 
 def _kind(run: Run) -> tuple[str, str]:
     """(kind, sub-key) for runs that are grouped without comparing code."""
+    if interrupted(run):
+        return "interrupted", ""
     if run.status == "error":
         return "killed", (run.exit_reason or "error").split(" ")[0]
     if run.tampered:
@@ -94,7 +102,7 @@ def _kind(run: Run) -> tuple[str, str]:
     return "fix", ""
 
 
-_ORDER = {"fix": 0, "no_change": 1, "tampered": 2, "gave_up": 3, "killed": 4}
+_ORDER = {"fix": 0, "no_change": 1, "tampered": 2, "gave_up": 3, "killed": 4, "interrupted": 5}
 
 
 def _cluster_fixes(runs: list[Run]) -> list[list[Run]]:
@@ -113,8 +121,9 @@ def _cluster_fixes(runs: list[Run]) -> list[list[Run]]:
 
 def group_runs(all_runs: list[Run]) -> list[RunGroup]:
     buckets: dict[tuple[str, str], list[Run]] = {}
-    for r in _scored(all_runs):
-        buckets.setdefault(_kind(r), []).append(r)
+    for r in all_runs:
+        if r.status != "cancelled":
+            buckets.setdefault(_kind(r), []).append(r)
 
     clusters: list[tuple[str, str, list[Run]]] = []
     for (kind, key), runs in buckets.items():
@@ -149,6 +158,8 @@ def group_runs(all_runs: list[Run]) -> list[RunGroup]:
             g.label = "Changed nothing" + (" (already passing)" if g.passed else "")
         elif g.kind == "gave_up":
             g.label = "Ran out of steps before finishing"
+        elif g.kind == "interrupted":
+            g.label = "Interrupted: model provider unavailable (not counted)"
         else:
             g.label = f"Killed by the sandbox: {g.label or 'error'}"
     return groups
@@ -178,6 +189,8 @@ def summarize(groups: list[RunGroup]) -> str | None:
             parts.append(f"{n(k)} ran out of steps")
         elif g.kind == "killed":
             parts.append(f"{n(k)} killed by the sandbox")
+        elif g.kind == "interrupted":
+            parts.append(f"{n(k)} interrupted by a model-provider outage (not counted)")
     return " · ".join(parts) or None
 
 

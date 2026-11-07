@@ -15,6 +15,7 @@ from itertools import zip_longest
 from app.agents import find_agent
 from app.config import Settings
 from app.events import EventBus
+from app.llm import CircuitBreaker
 from app.models.schemas import (
     ACTIVE_EXPERIMENT_STATUSES,
     CreateExperimentRequest,
@@ -31,7 +32,8 @@ from app.models.schemas import (
     TraceStep,
 )
 from app.sandbox import RunResult, RunSpec, SandboxDriver
-from app.scoring import compute_insights, compute_scores
+from app.sandbox.base import PROVIDER_DOWN
+from app.scoring import compute_insights, compute_scores, interrupted
 from app.store import Store
 
 log = logging.getLogger(__name__)
@@ -43,6 +45,10 @@ class NotFound(Exception):
 
 class Invalid(Exception):
     pass
+
+
+class Unavailable(Exception):
+    """The model provider is down: nothing would run."""
 
 
 class Busy(Exception):
@@ -78,8 +84,16 @@ class _Reporter:
 
 
 class ExperimentManager:
-    def __init__(self, settings: Settings, store: Store, bus: EventBus, driver: SandboxDriver):
+    def __init__(
+        self,
+        settings: Settings,
+        store: Store,
+        bus: EventBus,
+        driver: SandboxDriver,
+        breaker: CircuitBreaker | None = None,
+    ):
         self._settings = settings
+        self._breaker = breaker
         self._store = store
         self._bus = bus
         self._driver = driver
@@ -118,6 +132,8 @@ class ExperimentManager:
             self._driver.validate_repo(req.repo)
         except ValueError as err:
             raise Invalid(str(err)) from err
+        if self._breaker and not self._breaker.available():
+            raise Unavailable(self._breaker.unavailable_message())
         self._check_hourly_caps(total, client)
 
         exp = self._store.create(
@@ -218,6 +234,21 @@ class ExperimentManager:
             self._experiment_status(exp.id, "running", "COLLECTING EVIDENCE")
             finished = self._store.get(exp.id)
             assert finished is not None
+            if all(interrupted(r) for r in finished.runs if r.status != "cancelled"):
+                # Nothing measured: don't record a 0% for the model.
+                self._store.finish(
+                    exp.id,
+                    "failed",
+                    unfinished_run_status="error",
+                    unfinished_reason=PROVIDER_DOWN,
+                    insights=compute_insights(finished.runs, compute_scores(finished.runs)),
+                    duration_s=round(time.monotonic() - started, 1),
+                )
+                self._bus.publish(
+                    exp.id, ExperimentStatusEvent(status="failed", message="MODEL PROVIDER UNAVAILABLE — NOTHING SCORED")
+                )
+                log.warning("experiment %s: every run hit a model-provider outage", exp.id)
+                return
             scores = compute_scores(finished.runs)
             self._store.finish(
                 exp.id,
@@ -247,7 +278,12 @@ class ExperimentManager:
         reporter = _Reporter(self, exp_id, index)
         started = time.monotonic()
         try:
-            result = await asyncio.wait_for(self._driver.run(spec, reporter), timeout=spec.limits.timeout_s)
+            if self._breaker and not self._breaker.available():
+                # Provider is down: don't spend a sandbox on a run that can't call the model.
+                reporter.log(f"✗ {self._breaker.unavailable_message()}", "error")
+                result = RunResult.killed(PROVIDER_DOWN)
+            else:
+                result = await asyncio.wait_for(self._driver.run(spec, reporter), timeout=spec.limits.timeout_s)
         except TimeoutError:
             result = RunResult.killed(f"timeout ({spec.limits.timeout_s}s cap)")
         except asyncio.CancelledError:
@@ -311,4 +347,6 @@ def _final_line(result: RunResult) -> str:
         return f"✓ {counts or 'tests pass'}"
     if result.outcome == "fail":
         return f"✗ {counts or result.exit_reason or 'tests failed'}"
+    if (result.exit_reason or "").startswith(PROVIDER_DOWN):
+        return "✗ model provider unavailable — not counted"
     return f"✗ killed: {result.exit_reason} — sandbox destroyed"

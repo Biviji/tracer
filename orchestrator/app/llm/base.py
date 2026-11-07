@@ -19,12 +19,21 @@ class LLMError(Exception):
         status: int | None = None,
         retryable: bool = False,
         retry_after_s: float | None = None,
+        outage: bool = False,
     ):
         super().__init__(message)
         self.status = status
         self.retryable = retryable
         #: Provider-requested wait before retrying (Retry-After header), if any.
         self.retry_after_s = retry_after_s
+        #: The account can't make calls at all: out of credits, quota used up, key rejected.
+        self.outage = outage
+
+    @property
+    def provider_down(self) -> bool:
+        """The provider failed, not the request: outage, network, timeout, 5xx, or rate limit.
+        Such runs say nothing about the model and aren't scored."""
+        return self.outage or self.status is None or self.status >= 500 or self.status in (408, 429)
 
 
 class LLMClient(Protocol):

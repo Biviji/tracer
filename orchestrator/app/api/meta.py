@@ -17,6 +17,17 @@ _ping_cache: dict[str, tuple[float, bool]] = {}
 
 @router.get("/health", response_model=Health)
 async def health(deps: Deps) -> Health:
+    breaker = deps.llm
+    if not breaker.available():
+        # Calls are failing (e.g. out of credits): listing models may still work, so don't ping.
+        return Health(
+            status="degraded",
+            sandbox_driver=deps.driver.name,
+            inference=f"{breaker.name} (unavailable)",
+            inference_ok=False,
+            inference_reason=breaker.reason,
+            retry_in_s=breaker.retry_in_s(),
+        )
     cached = _ping_cache.get(deps.llm.name)
     if cached and time.monotonic() - cached[0] < PING_TTL_S:
         reachable = cached[1]
@@ -27,6 +38,8 @@ async def health(deps: Deps) -> Health:
         status="ok" if reachable else "degraded",
         sandbox_driver=deps.driver.name,
         inference=deps.llm.name if reachable else f"{deps.llm.name} (unreachable)",
+        inference_ok=reachable,
+        inference_reason=None if reachable else "not reachable",
     )
 
 

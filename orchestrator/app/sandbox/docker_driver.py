@@ -41,7 +41,7 @@ from app.agent.loop import Usage
 from app.config import Settings
 from app.llm import LLMClient, LLMError
 from app.models.schemas import DiffLine, FileDiff, RunCheck
-from app.sandbox.base import RunReporter, RunResult, RunSpec
+from app.sandbox.base import PROVIDER_DOWN, RunReporter, RunResult, RunSpec
 from app.sandbox.verify import parse_test_counts, protected_files, restore_script, tail
 
 log = logging.getLogger(__name__)
@@ -418,6 +418,8 @@ class DockerDriver:
             except LLMError as err:
                 log.warning("run %s#%d: model error: %s", spec.experiment_id, spec.run_index, err)
                 report.log(f"✗ model error: {str(err)[:160]}", "error")
+                if err.provider_down:
+                    return spent(RunResult.killed(f"{PROVIDER_DOWN} ({err.status or 'network'})"))
                 return spent(RunResult.killed(f"model_error ({err.status or 'network'})"))
 
             # Diff against the starting commit, so changes the agent committed still show.

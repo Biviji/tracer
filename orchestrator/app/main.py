@@ -13,7 +13,7 @@ from app.api import experiments, live, meta
 from app.api.deps import Services
 from app.config import Settings, get_settings
 from app.events import EventBus
-from app.llm import LLMClient, build_llm
+from app.llm import CircuitBreaker, LLMClient, build_llm
 from app.manager import ExperimentManager
 from app.sandbox import SandboxDriver, build_driver
 from app.store import Store
@@ -52,9 +52,10 @@ def create_app(
             log.warning("marked %d interrupted experiment(s) as failed: %s", len(interrupted), interrupted)
 
         bus = EventBus()
-        model = llm or build_llm(settings)
+        # Every model call goes through the breaker, so a provider outage stops runs fast.
+        model = CircuitBreaker(llm or build_llm(settings))
         sandbox = driver or build_driver(settings, model)
-        manager = ExperimentManager(settings, store, bus, sandbox)
+        manager = ExperimentManager(settings, store, bus, sandbox, breaker=model)
         app.state.services = Services(settings, store, bus, sandbox, model, manager)
         log.info("orchestrator up: sandbox=%s inference=%s", sandbox.name, model.name)
         purge = asyncio.create_task(_purge_loop(manager), name="retention")

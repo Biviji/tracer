@@ -7,7 +7,7 @@ from fastapi import Depends, Request
 
 from app.config import Settings
 from app.events import EventBus
-from app.llm import LLMClient
+from app.llm import CircuitBreaker
 from app.manager import ExperimentManager
 from app.sandbox import SandboxDriver
 from app.store import Store
@@ -19,7 +19,7 @@ class Services:
     store: Store
     bus: EventBus
     driver: SandboxDriver
-    llm: LLMClient
+    llm: CircuitBreaker
     manager: ExperimentManager
 
 

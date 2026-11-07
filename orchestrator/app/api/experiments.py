@@ -7,7 +7,7 @@ import secrets
 from fastapi import APIRouter, Header, HTTPException, Request, Response
 
 from app.api.deps import Deps
-from app.manager import Busy, Invalid, NotFound
+from app.manager import Busy, Invalid, NotFound, Unavailable
 from app.models.schemas import CreatedExperiment, CreateExperimentRequest, Experiment, ExperimentSummary
 
 router = APIRouter(prefix="/experiments")
@@ -48,6 +48,8 @@ async def create_experiment(req: CreateExperimentRequest, deps: Deps, request: R
         raise HTTPException(422, str(err)) from err
     except Busy as err:
         raise HTTPException(429, str(err)) from err
+    except Unavailable as err:
+        raise HTTPException(503, str(err)) from err
     return CreatedExperiment(**exp.model_dump(), owner_token=token)
 
 

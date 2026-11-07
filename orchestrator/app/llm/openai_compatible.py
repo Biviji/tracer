@@ -6,6 +6,7 @@ LLM_BASE_URL / LLM_API_KEY / LLM_MODELS.
 import asyncio
 import logging
 import random
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -25,6 +26,25 @@ RETRYABLE_STATUSES = {408, 409, 429, 500, 502, 503, 504}
 #: Provider error codes on HTTP 400 that mean "the model produced a bad tool call;
 #: sampling again usually works" (Groq: tool_use_failed, output_parse_failed).
 RETRYABLE_400_CODES = {"tool_use_failed", "output_parse_failed"}
+#: "This account can't make calls": no point retrying, and every other run will fail too.
+OUTAGE_STATUSES = {401, 402, 403}
+OUTAGE_CODES = {
+    "insufficient_quota",
+    "insufficient_balance",
+    "insufficient_credits",
+    "insufficient_funds",
+    "billing_hard_limit_reached",
+    "quota_exceeded",
+    "payment_required",
+}
+_OUTAGE_TEXT = re.compile(r"credit|balance|quota|billing|payment|insufficient funds", re.IGNORECASE)
+
+
+def _is_outage(res: httpx.Response) -> bool:
+    if res.status_code in OUTAGE_STATUSES or _error_code(res) in OUTAGE_CODES:
+        return True
+    # Some providers send "out of credits" as a plain 400/429 with only a message.
+    return res.status_code in (400, 429) and bool(_OUTAGE_TEXT.search(res.text[:500]))
 
 
 def _retry_after(res: httpx.Response) -> float | None:
@@ -71,7 +91,7 @@ class OpenAICompatibleClient:
                     message["usage"] = data["usage"]  # token counts; stripped before the next request
                 return message
             except LLMError as err:
-                if err.status == 429 and rate_limited_s < MAX_RATE_LIMIT_WAIT_S:
+                if err.status == 429 and not err.outage and rate_limited_s < MAX_RATE_LIMIT_WAIT_S:
                     # Jitter so parallel runs don't all retry in the same instant.
                     delay = min(err.retry_after_s or 5.0, MAX_WAIT_S) + random.uniform(0.2, 2.0)
                     rate_limited_s += delay
@@ -95,11 +115,14 @@ class OpenAICompatibleClient:
         except httpx.HTTPError as err:
             raise LLMError(f"Model provider unreachable: {err}", retryable=True) from err
         if res.status_code >= 400:
+            outage = _is_outage(res)
             raise LLMError(
                 f"Model provider returned {res.status_code}: {res.text[:500]}",
                 status=res.status_code,
-                retryable=res.status_code in RETRYABLE_STATUSES or _error_code(res) in RETRYABLE_400_CODES,
+                retryable=not outage
+                and (res.status_code in RETRYABLE_STATUSES or _error_code(res) in RETRYABLE_400_CODES),
                 retry_after_s=_retry_after(res),
+                outage=outage,
             )
         return res.json()
 

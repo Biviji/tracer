@@ -63,7 +63,8 @@ def wait_for(client, exp_id, statuses, timeout=10.0):
 
 def test_full_experiment_lifecycle(tmp_path):
     with make_client(tmp_path) as client:
-        assert client.get("/health").json() == {"status": "ok", "sandboxDriver": "sim", "inference": "fake (offline)"}
+        health = client.get("/health").json()
+        assert (health["status"], health["sandboxDriver"], health["inference"], health["inferenceOk"]) == ("ok", "sim", "fake (offline)", True)
         assert [a["id"] for a in client.get("/agents").json()] == ["fake"]
 
         summary = create(client, runs=5)
@@ -265,3 +266,67 @@ def test_retention_deletes_only_old_finished_experiments(tmp_path):
         assert services.manager.purge_expired() == [old]
         assert client.get(f"/experiments/{old}").status_code == 404
         assert client.get(f"/experiments/{new}").status_code == 200
+
+
+class _NoCredits:
+    """A provider whose account is out of credits."""
+
+    name = "no-credits"
+
+    async def chat(self, model, messages, **kw):
+        from app.llm import LLMError
+
+        raise LLMError("Model provider returned 402: insufficient credits", status=402, outage=True)
+
+    async def ping(self):
+        return True  # listing models still works with an empty balance
+
+    async def aclose(self):
+        pass
+
+
+class CallingDriver:
+    """Calls the model once per run, like the real driver, and reports outages the same way."""
+
+    name = "calling"
+    expected_steps = 1
+
+    def __init__(self):
+        self.llm = None
+        self.runs = 0
+
+    def validate_repo(self, repo):
+        pass
+
+    async def run(self, spec, report):
+        from app.llm import LLMError
+        from app.sandbox.base import PROVIDER_DOWN
+
+        self.runs += 1
+        report.running()
+        try:
+            await self.llm.chat(spec.model, [])
+        except LLMError as err:
+            return RunResult.killed(f"{PROVIDER_DOWN} ({err.status})")
+        return RunResult(outcome="pass")
+
+
+def test_out_of_credits_stops_the_experiment_fast_and_scores_nothing(tmp_path):
+    driver = CallingDriver()
+    settings = Settings(_env_file=None, db_url=f"sqlite:///{tmp_path / 'api.db'}", max_parallel_sandboxes=1)
+    with TestClient(create_app(settings, driver=driver, llm=_NoCredits())) as client:
+        driver.llm = client.app.state.services.llm  # the breaker-wrapped client, as in production
+        exp_id = create(client, runs=4)["id"]
+        exp = wait_for(client, exp_id, {"failed"})
+
+        assert driver.runs == 1  # the first failure opened the breaker; no more sandboxes started
+        assert all(r["status"] == "error" and r["exitReason"].startswith("provider_unavailable") for r in exp["runs"])
+        assert exp["scores"] is None  # no 0% recorded for the model
+        assert "interrupted by a model-provider outage" in exp["insights"]["summary"]
+
+        health = client.get("/health").json()
+        assert health["status"] == "degraded" and health["inferenceOk"] is False
+        assert "credits" in health["inferenceReason"] and health["retryInS"] > 0
+
+        res = client.post("/experiments", json={"repo": "demo-repo", "task": TASK, "agentId": "fake", "runs": 1})
+        assert res.status_code == 503 and "unavailable" in res.json()["detail"]

@@ -6,7 +6,7 @@ import pytest
 
 from app.agents import list_agents
 from app.config import Settings
-from app.llm import LLMError
+from app.llm import CircuitBreaker, LLMError
 from app.llm.openai_compatible import OpenAICompatibleClient
 
 
@@ -100,3 +100,80 @@ def test_agents_come_from_configured_models():
         ("qwen-qwen2-5-coder-32b", "qwen2.5-coder-32b"),
     ]
     assert agents[0].description == "via api.vultrinference.com"
+
+
+# ---------- outages: out of credits, key rejected, provider down ----------
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(402, text="payment required"),
+        httpx.Response(429, json={"error": {"code": "insufficient_quota", "message": "You exceeded your quota"}}),
+        httpx.Response(400, json={"error": {"message": "Insufficient credit balance"}}),
+    ],
+)
+def test_out_of_credits_is_an_outage_and_not_retried(response):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return response
+
+    with pytest.raises(LLMError) as err:
+        asyncio.run(client_with(handler).chat("m", []))
+    assert err.value.outage and err.value.provider_down
+    assert len(calls) == 1  # no waiting on a 429 that will never clear
+
+
+def test_bad_request_is_not_a_provider_outage():
+    err = LLMError("context too long", status=400)
+    assert not err.provider_down
+
+
+class _Flaky:
+    name = "flaky"
+
+    def __init__(self, errors):
+        self.errors = list(errors)
+        self.calls = 0
+
+    async def chat(self, model, messages, **kw):
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return {"role": "assistant", "content": "ok"}
+
+
+def test_breaker_opens_at_once_on_an_outage_and_recovers_after_cooldown():
+    now = [0.0]
+    inner = _Flaky([LLMError("no credits", status=402, outage=True)])
+    breaker = CircuitBreaker(inner, cooldown_s=60, clock=lambda: now[0])
+
+    with pytest.raises(LLMError):
+        asyncio.run(breaker.chat("m", []))
+    assert not breaker.available() and "credits" in breaker.reason
+    # while open: fails instantly, the provider isn't called
+    with pytest.raises(LLMError) as err:
+        asyncio.run(breaker.chat("m", []))
+    assert err.value.outage and inner.calls == 1
+    assert breaker.retry_in_s() == 60
+
+    now[0] = 61  # cooldown over: one call goes through, succeeds, breaker closes
+    assert asyncio.run(breaker.chat("m", []))["content"] == "ok"
+    assert breaker.available() and breaker.reason is None
+
+
+def test_breaker_opens_after_repeated_failures_but_not_on_bad_requests():
+    inner = _Flaky(
+        [LLMError("bad", status=400)] * 5 + [LLMError("down", status=503)] * 2 + [LLMError("timeout")]
+    )
+    breaker = CircuitBreaker(inner, threshold=3)
+    for _ in range(5):  # the request's fault, not the provider's
+        with pytest.raises(LLMError):
+            asyncio.run(breaker.chat("m", []))
+    assert breaker.available()
+    for _ in range(3):
+        with pytest.raises(LLMError):
+            asyncio.run(breaker.chat("m", []))
+    assert not breaker.available() and breaker.reason == "not reachable"

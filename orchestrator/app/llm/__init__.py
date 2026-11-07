@@ -1,9 +1,10 @@
 from app.config import Settings
 from app.llm.base import LLMClient, LLMError, Message
+from app.llm.breaker import CircuitBreaker
 from app.llm.fake import FakeLLMClient
 from app.llm.openai_compatible import OpenAICompatibleClient
 
-__all__ = ["LLMClient", "LLMError", "Message", "build_llm"]
+__all__ = ["CircuitBreaker", "LLMClient", "LLMError", "Message", "build_llm"]
 
 
 def build_llm(settings: Settings) -> LLMClient:
