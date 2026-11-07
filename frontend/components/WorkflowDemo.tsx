@@ -290,7 +290,16 @@ export function WorkflowDemo({ open, onClose }: { open: boolean; onClose: () => 
               />
             ))}
           </span>
-          <span className="ml-auto flex gap-2">
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            {i < last && (
+              <button
+                type="button"
+                className="px-2 py-2 text-[11px] tracking-[.08em] text-muted underline-offset-2 hover:text-ink hover:underline"
+                onClick={close}
+              >
+                SKIP
+              </button>
+            )}
             {i > 0 && (
               <button type="button" className="btn-ghost py-2" onClick={() => go(i - 1)}>
                 ← BACK

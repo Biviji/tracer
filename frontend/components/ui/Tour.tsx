@@ -120,8 +120,8 @@ export function Tour({ steps, open, onClose }: { steps: TourStep[]; open: boolea
           <span>
             <span className="text-accent">●</span> TOUR · {i + 1} / {steps.length}
           </span>
-          <button type="button" onClick={close} className="tracking-[.12em] hover:text-ink">
-            SKIP ✕
+          <button type="button" onClick={close} className="tracking-[.12em] hover:text-ink" aria-label="Close the tour">
+            ✕
           </button>
         </div>
         <h2 id="tour-title" className="mt-2.5 text-[22px] leading-none uppercase">
@@ -135,6 +135,15 @@ export function Tour({ steps, open, onClose }: { steps: TourStep[]; open: boolea
             ))}
           </span>
           <span className="ml-auto flex gap-2">
+            {!last && (
+              <button
+                type="button"
+                className="px-2 py-1.5 text-[11px] tracking-[.08em] text-muted underline-offset-2 hover:text-ink hover:underline"
+                onClick={close}
+              >
+                SKIP TOUR
+              </button>
+            )}
             {i > 0 && (
               <button
                 type="button"
