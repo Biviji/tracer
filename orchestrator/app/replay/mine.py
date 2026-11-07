@@ -181,7 +181,11 @@ def export_tree(git_dir: Path, sha: str, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryFile() as tmp:
         proc = subprocess.run(
-            ["git", "--git-dir", str(git_dir), "archive", "--format=tar", sha], stdout=tmp, stderr=subprocess.PIPE
+            # autocrlf off: on a Windows host, git archive would otherwise hand out CRLF files, and the
+            # agent's (LF) edits would then look like a rewrite of every line.
+            ["git", "-c", "core.autocrlf=false", "--git-dir", str(git_dir), "archive", "--format=tar", sha],
+            stdout=tmp,
+            stderr=subprocess.PIPE,
         )
         if proc.returncode != 0:
             raise CloneError(f"could not read commit {sha[:10]}: {proc.stderr.decode(errors='replace')[:200]}")

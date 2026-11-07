@@ -52,6 +52,7 @@ def test_every_demo_bug_fails_before_the_fix_and_passes_after(tmp_path, demo, n)
     repo = tmp_path / "repo"
     export_tree(demo, case.parent, repo)
     assert not (repo / ".git" / "shallow").exists()
+    assert b"\r\n" not in (repo / case.source_files[0]).read_bytes()  # LF as committed, even on Windows
     log = subprocess.run(["git", "log", "--oneline"], cwd=repo, capture_output=True, text=True).stdout
     assert len(log.splitlines()) == 1  # no history: the agent can't look the fix up
     for path, content in case.hidden_tests.items():
