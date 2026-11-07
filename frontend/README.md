@@ -13,12 +13,13 @@ npm run lint && npm run build
 
 | Route               | Screen                                                        |
 | ------------------- | ------------------------------------------------------------- |
-| `/`                 | Latest experiment (live grid if running, report if done)      |
-| `/experiments/[id]` | Same, for a specific experiment — refresh-safe live view      |
-| `/new`              | Experiment config → `POST /experiments` → redirect to live    |
-| `/overview`         | Fleet aggregates by agent                                     |
-| `/compare`          | Two runs of one experiment, state in `?exp=&a=&b=`            |
+| `/`                 | Landing page                                                  |
+| `/new`              | Experiment form (check command, models, runs) → live view     |
+| `/experiments/[id]` | Live grid while running, report when done — refresh-safe      |
 | `/reports`          | All saved experiments                                         |
+| `/overview`         | Aggregates per model                                          |
+| `/compare`          | Two runs of one experiment side by side, state in the URL     |
+| `/privacy`          | What is stored, for how long, and who can see it              |
 
 ## Layout
 
@@ -28,13 +29,16 @@ components/
   ui/           primitives: PageHeader, Panel, Tag, Table, StateBlock
   layout/       Rail + NavLinks
   views/        screen containers: fetch data, hold screen state
-  *.tsx         feature components: ScoreStrip, RunChips, TraceComparison,
-                SandboxGrid, Insights, ContainmentStrip (props in, JSX out)
+  landing/      landing page visuals and motion
+  motion/       smooth scroll
+  *.tsx         feature components: ReliabilityPanels, RunOutputs, SandboxGrid,
+                TraceComparison, WorkflowDemo, … (props in, JSX out)
 lib/
   types.ts      API contract (mirrored by orchestrator Pydantic schemas)
   api.ts        ALL orchestrator calls, behind the TraceApi interface
   sse.ts        live stream client (/live/:id)
   live.ts       pure reducer: LiveEvent -> sandbox grid state
+  owner.ts      owner tokens (stop / delete) kept in localStorage
   mock/         in-browser backend implementing TraceApi (dev/demo)
 styles/tokens.css   palette — the single source of colours
 ```
