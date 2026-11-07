@@ -37,30 +37,20 @@ const Tag = ({ on, children }: { on?: boolean; children: ReactNode }) => (
   </span>
 );
 
-const Status = ({ pass }: { pass: boolean }) => (
-  <span
-    className={`border-[1.5px] px-1.5 py-px text-center text-[9px] tracking-[.1em] ${
-      pass ? "border-pass-line bg-pass-bg text-pass-line" : "border-fail-line bg-fail-bg text-fail-line"
-    }`}
-  >
-    {pass ? "PASS" : "FAIL"}
-  </span>
-);
-
 const STEPS: Step[] = [
   {
     label: "SET UP",
-    title: "Describe one task",
-    body: "On the New experiment page you pick a repository (or the built-in demo), write the task the way you'd give it to a teammate, choose a model and how many times to run it.",
+    title: "Pick your past bugs",
+    body: "Paste a repo (or keep the demo). TRACE reads its history and finds bugs your team already fixed: commits that changed the code and added a test. Pick a few, choose the models to compare and how many runs each.",
     see: [
       "Repo: a public GitHub / GitLab / Bitbucket / Codeberg URL, or demo",
-      "Task: plain English — e.g. “fix the failing tests, don't change the tests”",
-      "Runs: more runs = a more honest reliability number",
+      "Each past bug is an exam with a known answer: the engineer's fix",
+      "Prefer your own task? Switch to “One task” and write it",
     ],
     visual: (
-      <Box title="new experiment">
+      <Box title="new experiment · past bugs">
         <Row k="REPO">demo</Row>
-        <Row k="TASK">Run the test suite, find why tests fail and fix the code.</Row>
+        <Row k="BUGS">✓ Fix new carts sharing items (#21) · ✓ Fix EU dates read month-first (#15) · +2</Row>
         <div className="grid grid-cols-[64px_1fr] items-center gap-2">
           <span className="text-[9.5px] tracking-[.14em] text-muted">MODEL</span>
           <span className="flex flex-wrap gap-1.5">
@@ -72,14 +62,14 @@ const STEPS: Step[] = [
         <div className="grid grid-cols-[64px_1fr] items-center gap-2">
           <span className="text-[9.5px] tracking-[.14em] text-muted">RUNS</span>
           <span className="flex gap-1.5">
+            <Tag>1</Tag>
+            <Tag on>2</Tag>
             <Tag>3</Tag>
-            <Tag on>5</Tag>
-            <Tag>8</Tag>
-            <Tag>10</Tag>
+            <Tag>5</Tag>
           </span>
         </div>
         <div className="mt-1 flex justify-between bg-ink px-3 py-2 font-display font-extrabold text-paper">
-          LAUNCH 5 PARALLEL RUNS <span>→</span>
+          REPLAY 4 BUGS · 8 RUNS <span>→</span>
         </div>
       </Box>
     ),
@@ -87,9 +77,9 @@ const STEPS: Step[] = [
   {
     label: "SANDBOXES",
     title: "Each run gets its own locked box",
-    body: "TRACE copies the repo, installs its dependencies in a throwaway setup container, then starts one sandbox per run with no network, no secrets and hard CPU / memory / time limits.",
+    body: "First TRACE checks each bug is real: the fix's test must fail on the old code and pass with the engineer's fix. Then every run starts from the code just before the fix, with no git history, no network, no secrets and hard CPU / memory / time limits.",
     see: [
-      "A step called “Install dependencies” in every run",
+      "The fix's test stays hidden until the run is checked",
       "The agent can only list, read, write files and run commands",
       "Nothing a run does can reach your machine, the server or other runs",
     ],
@@ -146,31 +136,32 @@ const STEPS: Step[] = [
   },
   {
     label: "REPORT",
-    title: "Read the reliability report",
-    body: "When all runs finish you get the score — how many runs passed — plus every run's final answer side by side and the exact code it changed.",
+    title: "Read the scorecard",
+    body: "Each run is checked with the real test it never saw. The scorecard shows which model fixed which bug, how reliably, whether it fixed it like the engineer did, and what each fix cost.",
     see: [
-      "Reliability: 3/5 passing = a 60% agent on this task",
-      "Outputs: what each run concluded, next to each other",
-      "Diffs: the real git diff per run — spot a run that edited the tests",
+      "Bugs fixed, and fixed reliably (at least 80% of runs)",
+      "Bug by bug: the bug report and the engineer's real fix",
+      "Runs that edited the tests are flagged and never count",
     ],
     visual: (
-      <Box title="report">
+      <Box title="scorecard">
         {[
-          ["01", true, "+6 −4"],
-          ["02", true, "+6 −4"],
-          ["03", false, "+3 −1"],
-          ["04", true, "+7 −4"],
-          ["05", false, "+2 −9"],
-        ].map(([n, pass, d]) => (
-          <div key={n as string} className="grid grid-cols-[52px_44px_1fr] items-center gap-2 text-[10.5px]">
-            <b className="font-display">RUN {n}</b>
-            <Status pass={pass as boolean} />
-            <span className="text-muted">{d}</span>
+          ["glm-5.3", "4/4", "4", "$0.02"],
+          ["qwen3.8-27b", "3/4", "2", "$0.01"],
+          ["deepseek", "2/4", "1", "$0.01"],
+        ].map(([m, fixed, rel, cost], n) => (
+          <div key={m} className="grid grid-cols-[1fr_44px_28px_44px] items-center gap-2 text-[10.5px]">
+            <b className="truncate font-display">
+              {m}
+              {n === 0 && <span className="ml-1.5 bg-accent px-1 text-[8.5px] text-accent-ink">BEST</span>}
+            </b>
+            <span>{fixed}</span>
+            <span className="text-muted">{rel}✓</span>
+            <span className="text-muted">{cost}</span>
           </div>
         ))}
-        <div className="mt-1 flex items-center gap-3 border-t-2 border-line pt-2.5">
-          <span className="bg-accent px-2.5 py-1 font-display text-xl font-extrabold text-accent-ink">60%</span>
-          <span className="text-[10.5px] tracking-[.08em]">RELIABLE · 3/5 PASS</span>
+        <div className="mt-1 border-t-2 border-line pt-2.5 text-[10.5px] tracking-[.06em]">
+          FIXED · RELIABLY · COST PER FIX
         </div>
       </Box>
     ),
