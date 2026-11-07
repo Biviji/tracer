@@ -108,7 +108,8 @@
 .landing .herogrid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 34px; align-items: end; margin-top: 26px; }
 .landing .herolede { max-width: 60ch; font-size: 14.5px; line-height: 1.75; }
 .landing .herolede strong { font-weight: 500; border-bottom: 2px solid var(--red); }
-.landing .cta { display: flex; flex-direction: column; gap: 10px; }
+/* above the eclipse orbits that rise behind the example card */
+.landing .cta { display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 2; }
 .landing .btn-primary {
   background: var(--ink); color: var(--paper); border: 2px solid var(--ink); padding: 16px 20px;
   font-family: var(--display); font-weight: 800; font-size: 17px; text-transform: uppercase; letter-spacing: 0.03em;
@@ -116,7 +117,7 @@
 }
 .landing .btn-primary:hover { background: var(--red); border-color: var(--red); color: #fff; }
 .landing .btn-ghost {
-  background: none; border: 2px solid var(--line); color: var(--ink); padding: 14px 20px;
+  background: var(--paper); border: 2px solid var(--line); color: var(--ink); padding: 14px 20px;
   font-family: var(--display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; text-align: center;
 }
 .landing .btn-ghost:hover { background: var(--ink); color: var(--paper); }
