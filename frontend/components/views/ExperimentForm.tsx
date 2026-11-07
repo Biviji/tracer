@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Spinner } from "@/components/ui/StateBlock";
 import { Tour, useFirstVisitTour, type TourStep } from "@/components/ui/Tour";
 import { WorkflowDemoButton } from "@/components/WorkflowDemo";
@@ -9,6 +10,7 @@ import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
 import { DEFAULT_RUN_COUNT, MAX_MODELS, MAX_TOTAL_RUNS, RUN_COUNT_OPTIONS } from "@/lib/config";
 import { errorMessage } from "@/lib/errors";
+import { rememberOwner } from "@/lib/owner";
 import { useApi } from "@/lib/hooks/useApi";
 import { LockIcon } from "../ContainmentStrip";
 import { DottedRule, PageHeader } from "../ui/PageHeader";
@@ -100,6 +102,7 @@ export function ExperimentForm() {
         runs,
         checkCommand: checkCommand.trim() || null,
       });
+      rememberOwner(created.id, created.ownerToken);
       router.push(`/experiments/${created.id}`);
     } catch (err) {
       setSubmitError(errorMessage(err));
@@ -327,6 +330,13 @@ export function ExperimentForm() {
             {submitError}
           </p>
         )}
+        <p className="mt-3 text-[11px] leading-[1.6] text-muted">
+          Experiments are visible to everyone on this site and deleted after 30 days. Use public repos only and never
+          put secrets in the task.{" "}
+          <Link href="/privacy" className="underline hover:text-accent">
+            Privacy
+          </Link>
+        </p>
       </form>
       <Tour steps={TOUR} open={tour.open} onClose={tour.close} />
     </>

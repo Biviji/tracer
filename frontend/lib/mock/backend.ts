@@ -284,7 +284,13 @@ export const mockBackend: TraceApi & {
     experiments.unshift(exp);
     // Start after the response so the client can subscribe first.
     setTimeout(() => simulate(exp, planRuns(exp.task, req.runs)), START_DELAY_MS);
-    return respond(summary(exp));
+    return respond({ ...summary(exp), ownerToken: `mock-${exp.id}` });
+  },
+
+  async deleteExperiment(id) {
+    await this.cancelExperiment(id, "");
+    experiments.splice(experiments.indexOf(find(id)), 1);
+    return respond(undefined);
   },
 
   async cancelExperiment(id) {

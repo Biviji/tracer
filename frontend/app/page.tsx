@@ -412,6 +412,9 @@ export default function LandingPage() {
                   <a href="#why">What it shows</a>
                 </li>
                 <li>
+                  <Link href="/privacy">Privacy</Link>
+                </li>
+                <li>
                   <a href={GITHUB} target="_blank" rel="noopener noreferrer">
                     GitHub ↗
                   </a>

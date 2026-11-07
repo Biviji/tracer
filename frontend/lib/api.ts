@@ -10,6 +10,7 @@ import { ApiError } from "./errors";
 import { mockBackend } from "./mock/backend";
 import type {
   Agent,
+  CreatedExperiment,
   CreateExperimentRequest,
   Experiment,
   ExperimentSummary,
@@ -22,8 +23,10 @@ export interface TraceApi {
   listAgents(): Promise<Agent[]>;
   listExperiments(): Promise<ExperimentSummary[]>;
   getExperiment(id: string): Promise<Experiment>;
-  createExperiment(req: CreateExperimentRequest): Promise<ExperimentSummary>;
-  cancelExperiment(id: string): Promise<void>;
+  createExperiment(req: CreateExperimentRequest): Promise<CreatedExperiment>;
+  /** Stop / delete need the owner token handed out at creation (lib/owner.ts). */
+  cancelExperiment(id: string, ownerToken: string): Promise<void>;
+  deleteExperiment(id: string, ownerToken: string): Promise<void>;
   getOverview(): Promise<OverviewStats>;
 }
 
@@ -58,8 +61,13 @@ const httpApi: TraceApi = {
   listExperiments: () => request("/experiments"),
   getExperiment: (id) => request(`/experiments/${encodeURIComponent(id)}`),
   createExperiment: (req) => request("/experiments", { method: "POST", body: JSON.stringify(req) }),
-  cancelExperiment: (id) =>
-    request(`/experiments/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  cancelExperiment: (id, ownerToken) =>
+    request(`/experiments/${encodeURIComponent(id)}/cancel`, {
+      method: "POST",
+      headers: { "X-Owner-Token": ownerToken },
+    }),
+  deleteExperiment: (id, ownerToken) =>
+    request(`/experiments/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-Owner-Token": ownerToken } }),
   getOverview: () => request("/stats/overview"),
 };
 

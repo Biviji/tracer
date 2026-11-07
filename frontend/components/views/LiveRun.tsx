@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useReducer, useState } from "react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { initLive, liveReducer } from "@/lib/live";
+import { useOwnerToken } from "@/lib/owner";
 import { subscribeLive, type ConnectionState } from "@/lib/sse";
 import type { Experiment } from "@/lib/types";
 import { ContainmentStrip } from "../ContainmentStrip";
@@ -23,6 +24,7 @@ export function LiveRun({ experiment, onSettled }: LiveRunProps) {
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const settled = useEffectEvent(onSettled);
+  const token = useOwnerToken(experiment.id);
 
   useEffect(
     () =>
@@ -39,10 +41,11 @@ export function LiveRun({ experiment, onSettled }: LiveRunProps) {
   );
 
   async function stop() {
+    if (!token) return;
     setStopping(true);
     setStopError(null);
     try {
-      await api.cancelExperiment(experiment.id);
+      await api.cancelExperiment(experiment.id, token);
     } catch (err) {
       setStopError(errorMessage(err));
       setStopping(false);
@@ -70,9 +73,13 @@ export function LiveRun({ experiment, onSettled }: LiveRunProps) {
       <ContainmentStrip limits={experiment.limits} />
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" className="btn-ghost" onClick={stop} disabled={stopping}>
-          {stopping ? "STOPPING…" : "STOP EXPERIMENT"}
-        </button>
+        {token ? (
+          <button type="button" className="btn-ghost" onClick={stop} disabled={stopping}>
+            {stopping ? "STOPPING…" : "STOP EXPERIMENT"}
+          </button>
+        ) : (
+          <span className="text-[11px] text-muted">Started from another browser: only that browser can stop it.</span>
+        )}
         {stopError && <span className="text-fail-line">{stopError}</span>}
       </div>
     </>

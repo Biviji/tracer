@@ -67,6 +67,8 @@ Set at least:
 | `SITE_ADDRESS` | your domain, or `<ip-with-dashes>.sslip.io` (e.g. `144-202-16-76.sslip.io`) |
 | `MAX_RUNS_PER_HOUR` | spend guard for the public site, e.g. `30` (0 = unlimited) |
 | `MAX_RUNS_PER_CLIENT_PER_HOUR` | per visitor, e.g. `12` |
+| `MAX_RUNS_PER_DAY` | hard daily ceiling, e.g. `100`; hourly and daily caps are counted in the database, so restarts don't reset them |
+| `RETENTION_DAYS` | finished experiments are deleted after this many days (default `30`, 0 = keep). The privacy page says 30 |
 | `MODEL_PRICES` | optional, USD per 1M tokens for "cost per correct fix", e.g. `glm-5.3=0.5/1.5,qwen3.8-27b=0.2/0.6` (use your real Vultr prices) |
 
 ## 5. Start

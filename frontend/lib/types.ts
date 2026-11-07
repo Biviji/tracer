@@ -147,6 +147,11 @@ export interface AgentRef {
   name: string;
 }
 
+/** Returned by create: the owner token goes only to the browser that started it. */
+export interface CreatedExperiment extends ExperimentSummary {
+  ownerToken: string;
+}
+
 export interface ExperimentSummary {
   id: string;
   title: string;

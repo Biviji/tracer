@@ -5,6 +5,7 @@ import { useState } from "react";
 import { formatDateTime, formatDuration, statusLabel } from "@/lib/format";
 import { answerGroups } from "@/lib/trace";
 import type { Experiment } from "@/lib/types";
+import { DeleteExperiment } from "../DeleteExperiment";
 import { ModelTable, RunGroups, VerdictBanner } from "../ReliabilityPanels";
 import { RunOutputs, type OutputsTab } from "../RunOutputs";
 import { StatusBadge } from "../StatusBadge";
@@ -62,6 +63,8 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
           <RunOutputs runs={exp.runs} tab={tab} onTabChange={setTab} />
         </Panel>
       </div>
+
+      <DeleteExperiment id={exp.id} />
 
       <Link
         href="/new"
