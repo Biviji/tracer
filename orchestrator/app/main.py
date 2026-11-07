@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api import experiments, live, meta
+from app.api import experiments, live, meta, replay
 from app.api.deps import Services
 from app.config import Settings, get_settings
 from app.events import EventBus
@@ -83,6 +83,7 @@ def create_app(
     app.include_router(meta.router)
     app.include_router(experiments.router)
     app.include_router(live.router)
+    app.include_router(replay.router)
     return app
 
 

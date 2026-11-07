@@ -9,7 +9,7 @@ when cancelled (asyncio.CancelledError) — that is the "destroyed after" promis
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.models.schemas import FileDiff, LogLevel, RunCheck, RunOutcome, SandboxLimits
+from app.models.schemas import FileDiff, LogLevel, ReplayCase, RunCheck, RunOutcome, SandboxLimits
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,8 @@ class RunSpec:
     limits: SandboxLimits
     #: Run after the agent to decide pass/fail, e.g. "pytest -q". None = trust the agent's "done".
     check_command: str | None = None
+    #: Past-bug replay: start from the code before this fix; its tests are added only for the check.
+    case: ReplayCase | None = None
 
 
 #: exit_reason prefix of runs stopped because the model provider was down. They are shown but
@@ -69,3 +71,8 @@ class SandboxDriver(Protocol):
         ...
 
     async def run(self, spec: RunSpec, report: RunReporter) -> RunResult: ...
+
+    # Optional, for past-bug replay:
+    #   async def validate_case(self, spec: RunSpec) -> tuple[bool, str | None]
+    # True when the fix's tests fail on the code before the fix and pass with the engineer's fix.
+    # Drivers without it treat every case as valid.

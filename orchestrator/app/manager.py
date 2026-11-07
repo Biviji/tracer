@@ -24,17 +24,24 @@ from app.models.schemas import (
     ExperimentStatusEvent,
     ExperimentSummary,
     LogLevel,
+    ReplayCase,
     RunLogEvent,
     RunProgressEvent,
     RunStatus,
     RunStatusEvent,
     SandboxLimits,
+    ScanResult,
     TraceStep,
 )
+from app.replay import candidate, mine, open_history
 from app.sandbox import RunResult, RunSpec, SandboxDriver
 from app.sandbox.base import PROVIDER_DOWN
+from app.sandbox.gitrepo import CloneError
 from app.scoring import compute_insights, compute_scores, interrupted
-from app.store import Store
+from app.store import Store, derive_title
+
+#: A scan is reused by the launch that follows it (and by other visitors) for this long.
+SCAN_TTL_S = 900.0
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +107,8 @@ class ExperimentManager:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         # (monotonic time, client, runs) for the hourly spend caps
         self._recent_runs: list[tuple[float, str, int]] = []
+        # repo -> (monotonic time, commits scanned, past bug fixes found)
+        self._scans: dict[str, tuple[float, int, list[ReplayCase]]] = {}
 
     # ---------- public ----------
 
@@ -123,15 +132,20 @@ class ExperimentManager:
             agents.append(agent)
         if req.runs > self._settings.max_runs:
             raise Invalid(f"runs must be between 1 and {self._settings.max_runs}")
-        total = req.runs * len(agents)
-        if total > self._settings.max_total_runs:
-            raise Invalid(
-                f"{req.runs} runs × {len(agents)} models = {total} runs; the limit is {self._settings.max_total_runs}"
-            )
         try:
             self._driver.validate_repo(req.repo)
         except ValueError as err:
             raise Invalid(str(err)) from err
+        cases: list[ReplayCase] = []
+        if req.mode == "replay":
+            cases = await self._pick_cases(req)
+        total = req.runs * len(agents) * max(1, len(cases))
+        if total > self._settings.max_total_runs:
+            what = f"{len(cases)} bugs × " if cases else ""
+            raise Invalid(
+                f"{what}{req.runs} runs × {len(agents)} models = {total} runs; "
+                f"the limit is {self._settings.max_total_runs}"
+            )
         if self._breaker and not self._breaker.available():
             raise Unavailable(self._breaker.unavailable_message())
         self._check_hourly_caps(total, client)
@@ -144,12 +158,65 @@ class ExperimentManager:
             limits=self.limits(),
             check_command=req.check_command or None,
             owner_hash=owner_hash,
+            mode=req.mode,
+            cases=cases or None,
+            title=derive_title(f"Past bugs {_repo_name(req.repo)}") if cases else None,
         )
         task = asyncio.create_task(self._execute(exp), name=f"experiment {exp.id}")
         self._tasks[exp.id] = task
         task.add_done_callback(lambda _: self._tasks.pop(exp.id, None))
         log.info("experiment %s created: %d runs × %s", exp.id, req.runs, ", ".join(a.model for a in agents))
         return exp.summary()
+
+    # ---------- past-bug replay ----------
+
+    async def scan(self, repo: str) -> ScanResult:
+        """Past bug fixes in the repo's recent history, newest first."""
+        try:
+            self._driver.validate_repo(repo)
+        except ValueError as err:
+            raise Invalid(str(err)) from err
+        scanned, cases = await self._scan(repo)
+        if not cases:
+            raise Invalid(
+                f"No past bug fixes found in the last {scanned} commits. TRACE looks for commits that fix a bug "
+                '("fix", "bug", "#123" in the message) and change both code and a test.'
+            )
+        return ScanResult(repo=repo, commits_scanned=scanned, candidates=[candidate(c) for c in cases])
+
+    async def _scan(self, repo: str) -> tuple[int, list[ReplayCase]]:
+        key = repo.strip().lower().removesuffix("/").removesuffix(".git")
+        hit = self._scans.get(key)
+        if hit and time.monotonic() - hit[0] < SCAN_TTL_S:
+            return hit[1], hit[2]
+
+        def run() -> tuple[int, list[ReplayCase]]:
+            with open_history(repo, self._settings) as git_dir:
+                return mine(git_dir)
+
+        try:
+            scanned, cases = await asyncio.to_thread(run)
+        except CloneError as err:
+            raise Invalid(str(err)) from err
+        now = time.monotonic()
+        self._scans = {k: v for k, v in self._scans.items() if now - v[0] < SCAN_TTL_S}
+        self._scans[key] = (now, scanned, cases)
+        return scanned, cases
+
+    async def _pick_cases(self, req: CreateExperimentRequest) -> list[ReplayCase]:
+        if not req.check_command:
+            raise Invalid("Replaying past bugs needs a check command (e.g. pytest -q): it decides pass or fail")
+        ids = list(dict.fromkeys(req.case_ids))
+        if not ids:
+            raise Invalid("Pick at least one past bug")
+        if len(ids) > self._settings.max_replay_cases:
+            raise Invalid(f"Pick at most {self._settings.max_replay_cases} past bugs")
+        _, found = await self._scan(req.repo)
+        by_id = {c.id: c for c in found}
+        missing = [i for i in ids if i not in by_id]
+        if missing:
+            raise Invalid(f"Past bug {missing[0]} wasn't found in this repo; scan it again")
+        return [by_id[i] for i in ids]
 
     def _check_hourly_caps(self, runs: int, client: str) -> None:
         """Spend guard for a public site: total runs per rolling hour and per day (counted in the
@@ -212,28 +279,77 @@ class ExperimentManager:
             gate = asyncio.Semaphore(self._settings.max_parallel_sandboxes)
             done = 0
 
-            async def one(index: int) -> None:
+            async def one(index: int, case: ReplayCase | None = None) -> None:
                 nonlocal done
                 spec = RunSpec(
-                    exp.id, index, exp.repo, exp.task, models.get(index, exp.agent_id), exp.limits, exp.check_command
+                    exp.id,
+                    index,
+                    exp.repo,
+                    case.task if case else exp.task,
+                    models.get(index, exp.agent_id),
+                    exp.limits,
+                    exp.check_command,
+                    case,
                 )
                 async with gate:
                     await self._run_one(spec)
                 done += 1
                 self._experiment_status(exp.id, "running", f"RUNNING {done}/{exp.run_count} DONE")
 
-            # Interleave models (A1, B1, C1, A2, ...) so every model starts early, not one after another.
-            per_model: dict[str, list[int]] = {}
-            for run in exp.runs:
-                per_model.setdefault(run.agent_id, []).append(run.index)
-            order = [i for batch in zip_longest(*per_model.values()) for i in batch if i is not None]
+            def interleaved(indexes: set[int]) -> list[int]:
+                """Models take turns (A1, B1, C1, A2, ...) so every model starts early."""
+                per_model: dict[str, list[int]] = {}
+                for run in exp.runs:
+                    if run.index in indexes:
+                        per_model.setdefault(run.agent_id, []).append(run.index)
+                return [i for batch in zip_longest(*per_model.values()) for i in batch if i is not None]
+
+            cases = self._store.cases(exp.id) if exp.mode == "replay" else []
+            checked = 0
+
+            async def replay(case: ReplayCase) -> None:
+                """Reproduce the bug first (no model involved); only a real bug gets runs."""
+                nonlocal checked
+                indexes = {r.index for r in exp.runs if r.case_id == case.id}
+                async with gate:
+                    ok, reason = await self._validate_case(exp, case, models.get(min(indexes), exp.agent_id))
+                checked += 1
+                self._store.update_case(exp.id, case.id, status="valid" if ok else "invalid", reason=reason)
+                self._experiment_status(exp.id, "running", f"CHECKED {checked}/{len(cases)} PAST BUGS")
+                if not ok:
+                    log.info("experiment %s: bug %s skipped: %s", exp.id, case.id, reason)
+                    for index in sorted(indexes):
+                        self._store.update_run(exp.id, index, status="cancelled", exit_reason=f"invalid_case: {reason}")
+                        self._bus.publish(exp.id, RunStatusEvent(run=index, status="cancelled"))
+                        self._bus.publish(exp.id, RunLogEvent(run=index, line=f"– bug skipped: {reason}", level="error"))
+                    return
+                async with asyncio.TaskGroup() as group:
+                    for index in interleaved(indexes):
+                        group.create_task(one(index, case))
+
             async with asyncio.TaskGroup() as group:
-                for index in order:
-                    group.create_task(one(index))
+                if cases:
+                    self._experiment_status(exp.id, "running", "REPRODUCING PAST BUGS")
+                    for case in cases:
+                        group.create_task(replay(case))
+                else:
+                    for index in interleaved({r.index for r in exp.runs}):
+                        group.create_task(one(index))
 
             self._experiment_status(exp.id, "running", "COLLECTING EVIDENCE")
             finished = self._store.get(exp.id)
             assert finished is not None
+            if cases and all(r.status == "cancelled" for r in finished.runs):
+                # No bug could be reproduced: nothing was measured.
+                self._store.finish(
+                    exp.id,
+                    "failed",
+                    unfinished_run_status="cancelled",
+                    insights=compute_insights(finished.runs, compute_scores(finished.runs), cases=finished.cases),
+                    duration_s=round(time.monotonic() - started, 1),
+                )
+                self._bus.publish(exp.id, ExperimentStatusEvent(status="failed", message="NO PAST BUG COULD BE REPRODUCED"))
+                return
             if all(interrupted(r) for r in finished.runs if r.status != "cancelled"):
                 # Nothing measured: don't record a 0% for the model.
                 self._store.finish(
@@ -257,7 +373,11 @@ class ExperimentManager:
                 unfinished_reason="not_collected",
                 scores=scores,
                 insights=compute_insights(
-                    finished.runs, scores, self._settings.prices, self._store.agent_models(exp.id)
+                    finished.runs,
+                    scores,
+                    self._settings.prices,
+                    self._store.agent_models(exp.id),
+                    cases=finished.cases or None,
                 ),
                 duration_s=round(time.monotonic() - started, 1),
             )
@@ -271,6 +391,21 @@ class ExperimentManager:
         except Exception:
             log.exception("experiment %s failed", exp.id)
             self._close(exp.id, "failed", duration_s=round(time.monotonic() - started, 1))
+
+    async def _validate_case(self, exp: Experiment, case: ReplayCase, model: str) -> tuple[bool, str | None]:
+        validate = getattr(self._driver, "validate_case", None)
+        if validate is None:
+            return True, None
+        spec = RunSpec(exp.id, 0, exp.repo, case.task, model, exp.limits, exp.check_command, case)
+        s = self._settings
+        limit = s.clone_timeout_s + s.setup_timeout_s + 2 * s.check_timeout_s
+        try:
+            return await asyncio.wait_for(validate(spec), timeout=limit)
+        except TimeoutError:
+            return False, "checking it took too long"
+        except Exception:
+            log.exception("experiment %s: validating bug %s crashed", exp.id, case.id)
+            return False, "couldn't set up the code before the fix"
 
     async def _run_one(self, spec: RunSpec) -> None:
         exp_id, index = spec.experiment_id, spec.run_index
@@ -350,3 +485,8 @@ def _final_line(result: RunResult) -> str:
     if (result.exit_reason or "").startswith(PROVIDER_DOWN):
         return "✗ model provider unavailable — not counted"
     return f"✗ killed: {result.exit_reason} — sandbox destroyed"
+
+
+def _repo_name(repo: str) -> str:
+    name = repo.strip().rstrip("/").removesuffix(".git").rsplit("/", 1)[-1]
+    return "demo" if name.lower() in ("demo", "demo-repo") else name

@@ -30,9 +30,11 @@ from app.models.schemas import (
     Agent,
     AgentRef,
     Experiment,
+    ExperimentMode,
     ExperimentStatus,
     ExperimentSummary,
     Insights,
+    ReplayCase,
     Run,
     SandboxLimits,
     Scores,
@@ -80,6 +82,9 @@ class ExperimentRow(Base):
     check_command: Mapped[str | None] = mapped_column(Text)
     #: sha256 of the owner token given to the creating browser; NULL on older rows (no owner).
     owner_hash: Mapped[str | None] = mapped_column(String(64))
+    #: "task" (NULL on older rows) or "replay"; replay rows keep their past bugs in `cases`.
+    mode: Mapped[str | None] = mapped_column(String(16))
+    cases: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
 
     runs: Mapped[list["RunRow"]] = relationship(
         back_populates="experiment", order_by="RunRow.index", cascade="all, delete-orphan"
@@ -107,6 +112,7 @@ class RunRow(Base):
     tokens_in: Mapped[int | None] = mapped_column(Integer)
     tokens_out: Mapped[int | None] = mapped_column(Integer)
     llm_calls: Mapped[int | None] = mapped_column(Integer)
+    case_id: Mapped[str | None] = mapped_column(String(40))
 
     experiment: Mapped[ExperimentRow] = relationship(back_populates="runs")
 
@@ -127,6 +133,9 @@ _ADDED_COLUMNS = [
     ("experiments", "agents", "JSON"),
     ("experiments", "check_command", "TEXT"),
     ("experiments", "owner_hash", "VARCHAR(64)"),
+    ("experiments", "mode", "VARCHAR(16)"),
+    ("experiments", "cases", "JSON"),
+    ("runs", "case_id", "VARCHAR(40)"),
 ]
 
 
@@ -154,6 +163,7 @@ def _to_run(row: RunRow, exp: ExperimentRow) -> Run:
             "tests_total": row.tests_total,
             "exit_reason": row.exit_reason,
             "answer": row.answer,
+            "case_id": row.case_id,
         }
     )
 
@@ -164,6 +174,8 @@ def _to_experiment(row: ExperimentRow) -> Experiment:
         title=row.title,
         task=row.task,
         repo=row.repo,
+        mode=row.mode or "task",  # type: ignore[arg-type]
+        cases=[ReplayCase.model_validate(c).view() for c in row.cases or []],
         agent_id=row.agent_id,
         agent_name=row.agent_name,
         agents=[AgentRef(id=a["id"], name=a["name"]) for a in row.agents]
@@ -266,6 +278,12 @@ class Store:
             )
             return s.scalar(q) or 0
 
+    def cases(self, experiment_id: str) -> list[ReplayCase]:
+        """Replay: the full cases, hidden tests included (never sent to the API)."""
+        with self._session() as s:
+            row = self._load(s, experiment_id)
+            return [ReplayCase.model_validate(c) for c in row.cases or []] if row else []
+
     # ---- writes ----
 
     def create(
@@ -278,25 +296,31 @@ class Store:
         limits: SandboxLimits,
         check_command: str | None = None,
         owner_hash: str | None = None,
+        mode: ExperimentMode = "task",
+        cases: list[ReplayCase] | None = None,
+        title: str | None = None,
     ) -> Experiment:
-        """`runs` per model; run indexes are model by model (1..runs = first model, ...)."""
+        """`runs` per model (per bug, in replay); indexes go bug by bug, then model by model."""
         first = agents[0]
+        case_ids: list[str | None] = [c.id for c in cases] if cases else [None]
         run_rows = [
             RunRow(
-                index=m * runs + i,
+                index=(c * len(agents) + m) * runs + i,
                 status="queued",
                 steps=[],
                 diff=[],
                 agent_id=a.id,
                 agent_name=a.name,
                 model=a.model,
+                case_id=case_id,
             )
+            for c, case_id in enumerate(case_ids)
             for m, a in enumerate(agents)
             for i in range(1, runs + 1)
         ]
         with self._session() as s, s.begin():
             row = ExperimentRow(
-                title=derive_title(task),
+                title=title or derive_title(task),
                 task=task,
                 repo=repo,
                 agent_id=first.id,
@@ -305,6 +329,8 @@ class Store:
                 agents=[{"id": a.id, "name": a.name, "model": a.model} for a in agents],
                 check_command=check_command or None,
                 owner_hash=owner_hash,
+                mode=mode,
+                cases=[c.model_dump() for c in cases] if cases else None,
                 status="queued",
                 created_at=datetime.now(UTC).replace(tzinfo=None),
                 limits=limits.model_dump(),
@@ -313,6 +339,15 @@ class Store:
             s.add(row)
             s.flush()
             return _to_experiment(row)
+
+    def update_case(self, experiment_id: str, case_id: str, *, status: str, reason: str | None = None) -> None:
+        with self._session() as s, s.begin():
+            row = self._load(s, experiment_id)
+            if row is None or not row.cases:
+                return
+            row.cases = [  # reassign: JSON columns don't track in-place edits
+                {**c, "status": status, "reason": reason} if c["id"] == case_id else c for c in row.cases
+            ]
 
     def set_status(self, experiment_id: str, status: ExperimentStatus) -> None:
         with self._session() as s, s.begin():

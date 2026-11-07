@@ -213,3 +213,58 @@ def test_editing_the_tests_is_caught_and_undone_for_the_check(buggy_repo):
     assert not result.check.passed and (result.check.tests_passed, result.check.tests_total) == (0, 1)
     assert _client.containers.list(all=True, filters={"label": LABEL}) == []
     assert _client.volumes.list(filters={"label": LABEL}) == []
+
+
+# ---------- past-bug replay ----------
+
+
+def _demo_case(title_start):
+    from app.replay import open_history
+    from app.replay.mine import mine
+
+    with open_history("demo", Settings(_env_file=None)) as git_dir:
+        return next(c for c in mine(git_dir)[1] if c.title.startswith(title_start))
+
+
+def _replay_spec(index, case):
+    limits = SandboxLimits(timeout_s=300, memory_mb=512, cpus=1, network="none")
+    return RunSpec("EXP-TEST", index, "demo", case.task, "m", limits, "pytest -q", case)
+
+
+def test_replay_validates_a_real_past_bug_and_hides_its_test_until_the_check():
+    case = _demo_case("Fix new carts")
+    settings = Settings(_env_file=None, sandbox_driver="docker", setup_timeout_s=150, check_timeout_s=60)
+
+    # The bug is real: its test fails before the fix and passes with the engineer's fix.
+    assert asyncio.run(DockerDriver(settings, ScriptedLLM([])).validate_case(_replay_spec(0, case))) == (True, None)
+
+    fixed = case.fix_files["shop/cart.py"]
+    llm = ScriptedLLM(
+        [
+            {"role": "assistant", "tool_calls": [call("run_command", "c1", command="ls tests; git log --oneline | wc -l")]},
+            {"role": "assistant", "tool_calls": [call("write_file", "c2", path="shop/cart.py", content=fixed)]},
+            {"role": "assistant", "content": "The default list was shared between carts."},
+        ]
+    )
+    rep = Reporter()
+    result = asyncio.run(DockerDriver(settings, llm).run(_replay_spec(5, case), rep))
+
+    listing = llm.tool_results[0]
+    assert "test_cart.py" not in listing  # the fix's test is hidden from the agent
+    assert listing.strip().endswith("1")  # and there's no history to look the fix up in
+    assert result.outcome == "pass", rep.logs
+    assert result.check.passed and result.check.tests_total and result.check.tests_passed == result.check.tests_total
+    assert any("hidden tests from the real fix added" in line for line in rep.logs)
+    assert _client.containers.list(all=True, filters={"label": LABEL}) == []
+    assert _client.volumes.list(filters={"label": LABEL}) == []
+
+
+def test_replay_run_that_misses_the_bug_fails_on_the_hidden_test():
+    case = _demo_case("Fix new carts")
+    settings = Settings(_env_file=None, sandbox_driver="docker", setup_timeout_s=150, check_timeout_s=60)
+    llm = ScriptedLLM([{"role": "assistant", "content": "Everything looks fine to me."}])
+
+    result = asyncio.run(DockerDriver(settings, llm).run(_replay_spec(6, case), Reporter()))
+
+    assert result.outcome == "fail" and result.exit_reason == "check_failed"
+    assert "test_new_carts_start_empty" in result.check.output

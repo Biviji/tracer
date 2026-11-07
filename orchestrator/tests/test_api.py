@@ -330,3 +330,83 @@ def test_out_of_credits_stops_the_experiment_fast_and_scores_nothing(tmp_path):
 
         res = client.post("/experiments", json={"repo": "demo-repo", "task": TASK, "agentId": "fake", "runs": 1})
         assert res.status_code == 503 and "unavailable" in res.json()["detail"]
+
+
+# ---------- past-bug replay ----------
+
+
+def scan(client, repo="demo"):
+    res = client.post("/replay/scan", json={"repo": repo})
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_scan_lists_the_demo_past_bugs(tmp_path):
+    with make_client(tmp_path) as client:
+        found = scan(client)
+    assert found["commitsScanned"] == 7
+    assert len(found["candidates"]) == 4
+    first = found["candidates"][0]
+    assert first["sourceFiles"] == ["shop/cart.py"] and first["testFiles"] == ["tests/test_cart.py"]
+    assert "hiddenTests" not in first and "fixFiles" not in first  # the answer key stays on the server
+
+
+def test_replay_experiment_scores_each_model_per_bug(tmp_path):
+    with make_client(tmp_path) as client:
+        ids = [c["id"] for c in scan(client)["candidates"][:2]]
+        body = {"repo": "demo", "mode": "replay", "caseIds": ids, "agentId": "fake", "runs": 2, "checkCommand": "pytest -q"}
+        res = client.post("/experiments", json=body)
+        assert res.status_code == 201, res.text
+        assert res.json()["runCount"] == 4 and res.json()["mode"] == "replay"
+        exp = wait_for(client, res.json()["id"], {"completed"})
+
+    assert [c["status"] for c in exp["cases"]] == ["valid", "valid"]
+    assert "hiddenTests" not in exp["cases"][0]
+    assert [r["caseId"] for r in exp["runs"]] == [ids[0], ids[0], ids[1], ids[1]]
+    case_scores = exp["insights"]["cases"]
+    assert [c["caseId"] for c in case_scores] == ids
+    assert all(sum(m["runs"] for m in c["models"]) == 2 for c in case_scores)
+    model = exp["insights"]["models"][0]
+    assert model["bugsTotal"] == 2 and model["bugsFixed"] is not None
+    assert exp["insights"]["summary"].startswith("Fixed ")
+    # a simulated pass uses the engineer's own fix, so it matches the answer key
+    passing = [m for c in case_scores for m in c["models"] if m["passed"]]
+    assert all(m["sameAsHuman"] == m["passed"] for m in passing)
+
+
+def test_bug_that_cant_be_reproduced_is_skipped_not_scored(tmp_path):
+    class PickyDriver(SimDriver):
+        async def validate_case(self, spec):
+            if "carts" in spec.case.title:
+                return False, "its test already passes on the code before the fix"
+            return True, None
+
+    with make_client(tmp_path, driver=PickyDriver(step_s=0)) as client:
+        ids = [c["id"] for c in scan(client)["candidates"][:2]]
+        body = {"repo": "demo", "mode": "replay", "caseIds": ids, "agentId": "fake", "runs": 1, "checkCommand": "pytest -q"}
+        exp = wait_for(client, client.post("/experiments", json=body).json()["id"], {"completed"})
+
+    skipped, kept = exp["cases"]
+    assert skipped["status"] == "invalid" and "already passes" in skipped["reason"]
+    assert kept["status"] == "valid"
+    assert exp["runs"][0]["status"] == "cancelled" and exp["runs"][0]["exitReason"].startswith("invalid_case")
+    assert exp["insights"]["models"][0]["bugsTotal"] == 1
+    assert "1 bug skipped" in exp["insights"]["summary"]
+
+
+@pytest.mark.parametrize(
+    ("body", "detail"),
+    [
+        ({"checkCommand": None}, "needs a check command"),
+        ({"caseIds": []}, "Pick at least one past bug"),
+        ({"caseIds": ["deadbeef00"]}, "wasn't found in this repo"),
+        ({"runs": 10}, "the limit is 20"),
+    ],
+)
+def test_replay_requests_are_checked(tmp_path, body, detail):
+    with make_client(tmp_path) as client:
+        ids = [c["id"] for c in scan(client)["candidates"][:4]]
+        payload = {"repo": "demo", "mode": "replay", "caseIds": ids, "agentId": "fake", "runs": 1,
+                   "checkCommand": "pytest -q", **body}  # fmt: skip
+        res = client.post("/experiments", json=payload)
+    assert res.status_code == 422 and detail in res.json()["detail"], res.text

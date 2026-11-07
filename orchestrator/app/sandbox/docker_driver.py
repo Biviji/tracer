@@ -39,6 +39,7 @@ from app.agent.loop import Usage
 from app.config import Settings
 from app.llm import LLMClient, LLMError
 from app.models.schemas import RunCheck
+from app.replay import export_tree, open_history
 from app.sandbox.base import PROVIDER_DOWN, RunReporter, RunResult, RunSpec
 from app.sandbox.gitrepo import (
     SAFE_GIT_CONFIG,
@@ -166,6 +167,31 @@ def _tar_dir(src: Path) -> bytes:
     return buf.getvalue()
 
 
+def _tar_files(files: dict[str, str]) -> bytes:
+    """Several files (repo-relative paths) with their folders, owned by the sandbox user."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        dirs = sorted({str(p) for path in files for p in PurePosixPath(path).parents if str(p) != "."})
+        for d in dirs:
+            info = tarfile.TarInfo(d)
+            info.type, info.mode = tarfile.DIRTYPE, 0o755
+            info.uid = info.gid = AGENT_UID
+            tar.addfile(info)
+        for path, content in files.items():
+            data = content.encode()
+            info = tarfile.TarInfo(path)
+            info.size, info.mode = len(data), 0o644
+            info.uid = info.gid = AGENT_UID
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def _case_tree(repo: str, sha: str, dest: Path, settings: Settings) -> None:
+    """Replay: the code just before the fix, as a fresh repo without history."""
+    with open_history(repo, settings) as git_dir:
+        export_tree(git_dir, sha, dest)
+
+
 def _tar_file(name: str, content: str) -> bytes:
     data = content.encode()
     info = tarfile.TarInfo(name)
@@ -245,6 +271,21 @@ class _ContainerWorkspace:
         if code == 137:
             out += f"\n[killed: exceeded {self._timeout}s or the memory limit]"
         return f"exit code {code}\n{out}" if out.strip() else f"exit code {code}"
+
+
+class _Quiet:
+    """Reporter for work that belongs to no run (case validation)."""
+
+    closed = False
+
+    def running(self) -> None:
+        pass
+
+    def log(self, line: str, level: str = "info") -> None:
+        pass
+
+    def step(self, label: str, detail: str | None = None) -> None:
+        pass
 
 
 class DockerDriver:
@@ -328,7 +369,10 @@ class DockerDriver:
         volume = None
         try:
             try:
-                if demo:
+                if spec.case:
+                    report.log(f"$ git checkout {spec.case.parent[:10]}  (the code just before fix {spec.case.id})")
+                    await asyncio.to_thread(_case_tree, spec.repo, spec.case.parent, repo, self._s)
+                elif demo:
                     report.log("$ using the built-in demo repo")
                     await asyncio.to_thread(_copy_demo, self._s.demo_repo_dir, repo)
                 else:
@@ -434,6 +478,9 @@ class DockerDriver:
         if tampered:
             await ws._exec(["bash", "-c", restore_script(tampered, base)])
             report.log("  test files restored to their original version before checking")
+        if spec.case:
+            await asyncio.to_thread(verify.put_archive, WORKDIR, _tar_files(spec.case.hidden_tests))
+            report.log(f"  hidden tests from the real fix added: {', '.join(spec.case.test_files)[:160]}")
         deps_after = (await ws._exec(["bash", "-c", DEPS_FINGERPRINT]))[1].strip()
         deps_changed = bool(deps_before) and deps_after != deps_before
         if deps_changed:
@@ -455,6 +502,54 @@ class DockerDriver:
             output=tail(out) + (f"\n[killed: exceeded {t}s]" if code == 137 else ""),
         )
         return check, deps_changed
+
+    async def validate_case(self, spec: RunSpec) -> tuple[bool, str | None]:
+        """A past bug is a fair exam only if its tests fail on the code before the fix and pass
+        with the engineer's fix. Runs both in a sandbox (no model involved)."""
+        case = spec.case
+        assert case is not None and spec.check_command
+        tmp = Path(tempfile.mkdtemp(prefix="trace-validate-"))
+        repo = tmp / "repo"
+        containers: list[Container] = []
+        volume = None
+        quiet = _Quiet()
+        try:
+            try:
+                await asyncio.to_thread(_case_tree, spec.repo, case.parent, repo, self._s)
+            except CloneError as err:
+                return False, str(err)
+            await asyncio.to_thread(_exclude_dep_dirs, repo)
+            archive = await asyncio.to_thread(_tar_dir, repo)
+            install = install_command(repo) if self._s.sandbox_install_deps else None
+            volume = await asyncio.to_thread(self._client.volumes.create, labels={LABEL: "1"})
+            if install:
+                await self._setup(spec, volume.name, archive, install, quiet, containers)
+            box = await asyncio.to_thread(self._start, spec, volume.name, role=f"validate-{case.id[:7]}")
+            containers.append(box)
+            if not install:
+                await asyncio.to_thread(box.put_archive, WORKDIR, archive)
+            ws = _ContainerWorkspace(box, self._s.check_timeout_s)
+            t = str(self._s.check_timeout_s)
+            check = ["timeout", "-s", "KILL", t, "bash", "-lc", spec.check_command]
+
+            await asyncio.to_thread(box.put_archive, WORKDIR, _tar_files(case.hidden_tests))
+            code, out = await ws._exec(check)
+            if code == 0:
+                return False, "its test already passes on the code before the fix"
+            fixed = {p: c for p, c in case.fix_files.items() if c is not None}
+            if fixed:
+                await asyncio.to_thread(box.put_archive, WORKDIR, _tar_files(fixed))
+            for p in (p for p, c in case.fix_files.items() if c is None):
+                await ws._exec(["rm", "-f", "--", p])
+            code, out = await ws._exec(check)
+            if code != 0:
+                passed, total = parse_test_counts(out)
+                counts = f", {passed}/{total} tests pass" if total is not None else ""
+                return False, f"the tests fail even with the engineer's fix (exit {code}{counts})"
+            return True, None
+        finally:
+            shutil.rmtree(tmp, onexc=_force_remove)
+            await asyncio.shield(asyncio.to_thread(self._destroy_all, containers, volume))
 
     async def _setup(
         self,

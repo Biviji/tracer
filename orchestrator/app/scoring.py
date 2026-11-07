@@ -8,7 +8,17 @@ about the agent.
 import json
 import string
 
-from app.models.schemas import FailurePattern, Insights, ModelScore, Run, RunGroup, Scores
+from app.models.schemas import (
+    CaseModelScore,
+    CaseScore,
+    FailurePattern,
+    Insights,
+    ModelScore,
+    ReplayCaseView,
+    Run,
+    RunGroup,
+    Scores,
+)
 from app.sandbox.base import PROVIDER_DOWN
 
 _NO_STEP = "∅"
@@ -194,8 +204,70 @@ def summarize(groups: list[RunGroup]) -> str | None:
     return " · ".join(parts) or None
 
 
+#: A bug counts as "reliably fixed" by a model when at least this share of its runs pass.
+RELIABLE = 0.8
+
+
+def same_as_human(run: Run, case: ReplayCaseView) -> bool:
+    """The run passed with the engineer's fix: same files, mostly the same lines replaced."""
+    return run.status == "pass" and _same_fix(run, Run(index=0, status="pass", diff=case.human_diff))
+
+
+def score_cases(all_runs: list[Run], cases: list[ReplayCaseView]) -> list[CaseScore]:
+    runs = _scored(all_runs)
+    out = []
+    for case in cases:
+        per: dict[str, list[Run]] = {}
+        for r in runs:
+            if r.case_id == case.id:
+                per.setdefault(r.agent_id, []).append(r)
+        out.append(
+            CaseScore(
+                case_id=case.id,
+                title=case.title,
+                status=case.status,
+                reason=case.reason,
+                models=[
+                    CaseModelScore(
+                        agent_id=agent_id,
+                        agent_name=rs[0].agent_name or agent_id,
+                        runs=len(rs),
+                        passed=sum(1 for r in rs if r.status == "pass"),
+                        same_as_human=sum(1 for r in rs if same_as_human(r, case)),
+                    )
+                    for agent_id, rs in per.items()
+                ],
+            )
+        )
+    return out
+
+
+def replay_summary(models: list[ModelScore], cases: list[CaseScore]) -> str | None:
+    valid = [c for c in cases if c.status == "valid"]
+    skipped = len(cases) - len(valid)
+    parts = []
+    if valid and models:
+        n = len(valid)
+        bug = "bug" if n == 1 else "bugs"
+        if len(models) == 1:
+            m = models[0]
+            parts.append(f"Fixed {m.bugs_fixed} of {n} past {bug} ({m.bugs_reliable} reliably)")
+        else:
+            ranked = sorted(models, key=lambda m: (-(m.bugs_reliable or 0), -(m.bugs_fixed or 0), -m.reliability))
+            parts.append(
+                f"On {n} past {bug}: "
+                + ", ".join(f"{m.agent_name} fixed {m.bugs_fixed} ({m.bugs_reliable} reliably)" for m in ranked)
+            )
+    if skipped:
+        parts.append(f"{skipped} bug{'s' if skipped > 1 else ''} skipped (couldn't be reproduced)")
+    return " · ".join(parts) or None
+
+
 def score_models(
-    all_runs: list[Run], prices: dict[str, tuple[float, float]] | None = None, models: dict[str, str] | None = None
+    all_runs: list[Run],
+    prices: dict[str, tuple[float, float]] | None = None,
+    models: dict[str, str] | None = None,
+    cases: list[CaseScore] | None = None,
 ) -> list[ModelScore]:
     """Per model: checked pass rate, time, tokens, and cost per passing run when a price is known.
 
@@ -211,6 +283,14 @@ def score_models(
         t_in = sum(r.tokens_in or 0 for r in runs)
         t_out = sum(r.tokens_out or 0 for r in runs)
         durations = [r.duration_s for r in runs if r.duration_s is not None]
+        bugs = None
+        if cases is not None:
+            mine = [m for c in cases if c.status == "valid" for m in c.models if m.agent_id == agent_id]
+            bugs = (
+                sum(1 for c in cases if c.status == "valid"),
+                sum(1 for m in mine if m.passed),
+                sum(1 for m in mine if m.runs and m.passed / m.runs >= RELIABLE),
+            )
         price = prices.get(models.get(agent_id, agent_id))
         cost = round((t_in * price[0] + t_out * price[1]) / 1_000_000, 4) if price else None
         out.append(
@@ -226,6 +306,9 @@ def score_models(
                 tokens_per_pass=round((t_in + t_out) / passed) if passed else None,
                 cost_usd=cost,
                 cost_per_pass_usd=round(cost / passed, 4) if cost is not None and passed else None,
+                bugs_total=bugs[0] if bugs else None,
+                bugs_fixed=bugs[1] if bugs else None,
+                bugs_reliable=bugs[2] if bugs else None,
             )
         )
     return out
@@ -236,6 +319,7 @@ def compute_insights(
     scores: Scores,
     prices: dict[str, tuple[float, float]] | None = None,
     models: dict[str, str] | None = None,
+    cases: list[ReplayCaseView] | None = None,
 ) -> Insights:
     runs = _scored(all_runs)
     step = scores.divergence_step
@@ -255,6 +339,19 @@ def compute_insights(
     if step:
         actions = {_label_at(r, step) for r in runs}
         summary = f"At step {step:02d} the runs took {len(actions)} different actions."
+
+    if cases:
+        # Replay: groups by "same fix" across different bugs mean nothing; the scorecard replaces them.
+        case_scores = score_cases(all_runs, cases)
+        model_scores = score_models(all_runs, prices, models, case_scores)
+        return Insights(
+            divergence_summary=None,
+            patterns=[FailurePattern(label=k, runs=v) for k, v in groups.items()],
+            summary=replay_summary(model_scores, case_scores),
+            groups=[g for g in group_runs(all_runs) if g.kind in ("tampered", "interrupted")],
+            models=model_scores,
+            cases=case_scores,
+        )
 
     run_groups = group_runs(all_runs)
     return Insights(

@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     sim_step_s: float = Field(default=0.5, ge=0)
     #: Runs per model in one experiment.
     max_runs: int = Field(default=10, ge=1)
-    #: Runs in one experiment across all its models (runs × models).
+    #: Past-bug replay: bugs one experiment may re-do (each run on every model).
+    max_replay_cases: int = Field(default=6, ge=1)
+    #: Runs in one experiment across all its models (runs × models; × bugs in replay).
     max_total_runs: int = Field(default=20, ge=1)
     max_parallel_sandboxes: int = Field(default=4, ge=1)
     #: Spend guard for a public deployment: total runs (all experiments) allowed per rolling hour.

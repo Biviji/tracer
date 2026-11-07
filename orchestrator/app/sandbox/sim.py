@@ -66,6 +66,10 @@ class SimDriver:
     def validate_repo(self, repo: str) -> None:
         pass  # simulated runs clone nothing
 
+    async def validate_case(self, spec: RunSpec) -> tuple[bool, str | None]:
+        await asyncio.sleep(self._step_s)
+        return True, None
+
     async def run(self, spec: RunSpec, report: RunReporter) -> RunResult:
         rnd = random.Random(f"{spec.model}|{spec.task}#{spec.run_index}")
         roll = rnd.random()
@@ -135,7 +139,7 @@ class SimDriver:
             report.log(f"✓ check passed · {TESTS_TOTAL}/{TESTS_TOTAL} tests", "ok")
         return RunResult(
             outcome="pass",
-            diff=FIX,
+            diff=spec.case.human_diff if spec.case else FIX,
             tests_passed=TESTS_TOTAL,
             tests_total=TESTS_TOTAL,
             answer=PASS_ANSWERS[rnd.randrange(len(PASS_ANSWERS))],
