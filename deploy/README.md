@@ -80,7 +80,24 @@ docker compose logs -f orchestrator     # should say: sandbox=docker+gvisor infe
 
 Open `https://<SITE_ADDRESS>`, use repo `demo` for the built-in demo project.
 
-## Update / stop / remove
+## Automatic deploys (GitHub Actions)
+
+`.github/workflows/ci.yml` runs lint and tests on every push and pull request. When `main` is
+green it ships the commit to this server, rebuilds, and checks `/api/health`. One-time setup:
+
+1. On your machine: `ssh-keygen -t ed25519 -f trace-deploy -N "" -C trace-deploy`, then append
+   `trace-deploy.pub` to `/root/.ssh/authorized_keys` on the server.
+2. GitHub → repo → Settings → Secrets and variables → Actions:
+   - secret `DEPLOY_SSH_KEY` = contents of `trace-deploy` (the private key)
+   - secret `DEPLOY_KNOWN_HOSTS` = output of `ssh-keyscan -t ed25519 <server ip>`
+   - variable `DEPLOY_HOST` = the server IP, variable `SITE_URL` = `https://<ip-with-dashes>.sslip.io`
+3. Optional: Settings → Environments → `production` → required reviewers, so each deploy waits
+   for a click.
+
+Each deploy unpacks into a fresh folder and keeps the previous one in `/opt/tracer.prev`.
+Rollback: `cd /opt && rm -rf tracer && mv tracer.prev tracer && cd tracer && docker compose -p tracer -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
+
+## Update / stop / remove (by hand)
 
 ```bash
 git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   # update

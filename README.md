@@ -36,7 +36,12 @@ Typical uses: before letting a bot auto-fix failing tests, before routing CI bre
 | `orchestrator/` | FastAPI: spawn → stream → collect → score → persist, agent loop | ✅ built |
 | `runner/`       | Sandbox image each run's container starts from        | ✅ built       |
 | `demo-repo/`    | Small buggy shop library + failing tests (repo `demo`) | ✅ built       |
-| `docs/design/`  | Original static HTML design (reference only)          | 📎            |
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`): orchestrator lint + tests (including the real-Docker
+sandbox tests), frontend lint + build, then an automatic deploy of `main` to the Vultr VM with a
+health check. Setup: [deploy/README.md](deploy/README.md#automatic-deploys-github-actions).
 
 ## Quick start (whole stack)
 
