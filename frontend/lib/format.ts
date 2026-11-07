@@ -58,6 +58,7 @@ export function killedBySandbox(exitReason: string | null | undefined): boolean 
  */
 export function statusLabel(status: RunStatus, exitReason?: string | null): string {
   if (status === "fail" && exitReason === "tampered") return "TAMPERED";
+  if (status === "cancelled" && (exitReason ?? "").startsWith("invalid_case")) return "SKIPPED";
   if (status !== "error") return status.toUpperCase();
   if ((exitReason ?? "").startsWith("provider_unavailable")) return "PROVIDER DOWN";
   return killedBySandbox(exitReason) ? "KILLED" : "ERROR";

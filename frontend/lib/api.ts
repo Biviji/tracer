@@ -16,6 +16,7 @@ import type {
   ExperimentSummary,
   Health,
   OverviewStats,
+  ScanResult,
 } from "./types";
 
 export interface TraceApi {
@@ -28,6 +29,8 @@ export interface TraceApi {
   cancelExperiment(id: string, ownerToken: string): Promise<void>;
   deleteExperiment(id: string, ownerToken: string): Promise<void>;
   getOverview(): Promise<OverviewStats>;
+  /** Past bug fixes in the repo's history (replay mode). */
+  scanRepo(repo: string): Promise<ScanResult>;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -69,6 +72,7 @@ const httpApi: TraceApi = {
   deleteExperiment: (id, ownerToken) =>
     request(`/experiments/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-Owner-Token": ownerToken } }),
   getOverview: () => request("/stats/overview"),
+  scanRepo: (repo) => request("/replay/scan", { method: "POST", body: JSON.stringify({ repo }) }),
 };
 
 export const api: TraceApi = config.useMock ? mockBackend : httpApi;

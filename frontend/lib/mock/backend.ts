@@ -134,6 +134,7 @@ function planRuns(task: string, n: number): Plan[] {
 function emptyRun(index: number, agent: { id: string; name: string }): Run {
   return {
     index,
+    caseId: null,
     agentId: agent.id,
     agentName: agent.name,
     check: null,
@@ -268,13 +269,14 @@ export const mockBackend: TraceApi & {
     if (!agent) throw new ApiError(422, `Unknown agent ${req.agentIds[0]}`);
     if (!Number.isInteger(req.runs) || req.runs < 1 || req.runs > 10)
       throw new ApiError(422, "runs must be between 1 and 10");
-    if (req.task.trim().length < 10) throw new ApiError(422, "task is too short");
+    const task = (req.task ?? "").trim();
+    if (task.length < 10) throw new ApiError(422, "task is too short");
     if (!req.repo.trim()) throw new ApiError(422, "repo is required");
 
     const exp: Experiment = {
       id: `EXP-0${pad2(nextId++)}`,
-      title: deriveTitle(req.task.trim()),
-      task: req.task.trim(),
+      title: deriveTitle(task),
+      task,
       repo: req.repo.trim(),
       agentId: agent.id,
       agentName: agent.name,
@@ -315,6 +317,10 @@ export const mockBackend: TraceApi & {
     exp.status = "cancelled";
     emit(id, { type: "experiment.status", status: "cancelled", message: "STOPPED — SANDBOXES DESTROYED" });
     return respond(undefined);
+  },
+
+  async scanRepo() {
+    throw new ApiError(501, "Replaying past bugs needs the real orchestrator (it reads the repo's git history).");
   },
 
   getOverview(): Promise<OverviewStats> {

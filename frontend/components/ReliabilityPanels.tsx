@@ -29,7 +29,7 @@ export function VerdictBanner({ exp }: { exp: Experiment }) {
               ✓ VERIFIED
             </span>
             PASS = <code className="bg-paper px-1.5 py-0.5">{exp.checkCommand}</code> exited 0 in a fresh sandbox,
-            original tests restored
+            {exp.mode === "replay" ? " with the real fix's hidden tests added" : " original tests restored"}
           </p>
         ) : (
           <p className="flex flex-wrap items-center gap-2 text-[12px] tracking-[.06em]">

@@ -6,6 +6,7 @@ import { formatDateTime, formatDuration, statusLabel } from "@/lib/format";
 import { answerGroups } from "@/lib/trace";
 import type { Experiment } from "@/lib/types";
 import { DeleteExperiment } from "../DeleteExperiment";
+import { ReplayScorecard } from "../ReplayScorecard";
 import { ModelTable, RunGroups, VerdictBanner } from "../ReliabilityPanels";
 import { RunOutputs, type OutputsTab } from "../RunOutputs";
 import { StatusBadge } from "../StatusBadge";
@@ -52,10 +53,22 @@ export function ExperimentReport({ experiment: exp, hero }: ExperimentReportProp
         Experiment report<span className="text-accent"> /</span>
       </h2>
       <Facts exp={exp} />
-      <TaskBlock task={exp.task} />
+      {exp.mode === "replay" ? (
+        <p className="mt-3.5 max-w-[80ch] border-l-4 border-accent pl-3 text-[13px] leading-relaxed">
+          Past-bug replay: each model started from the code just before {exp.cases?.length ?? 0} real bug fixes in this
+          repo, got the commit message as the bug report, and was checked with the fix&apos;s own tests, which it never
+          saw.
+        </p>
+      ) : (
+        <TaskBlock task={exp.task} />
+      )}
 
       <VerdictBanner exp={exp} />
-      {exp.insights && <ModelTable models={exp.insights.models} />}
+      {exp.mode === "replay" ? (
+        <ReplayScorecard exp={exp} onOpenRun={openRun} />
+      ) : (
+        exp.insights && <ModelTable models={exp.insights.models} />
+      )}
       {exp.insights && <RunGroups groups={exp.insights.groups} onOpen={openRun} />}
 
       <div id="outputs" className="scroll-mt-4">
@@ -110,7 +123,10 @@ function Facts({ exp }: { exp: Experiment }) {
   const facts = [
     { icon: <RepoIcon />, text: exp.repo },
     { icon: <AgentIcon />, text: (exp.agents?.length ? exp.agents.map((a) => a.name) : [exp.agentName]).join(" · ") },
-    { icon: <LayersIcon />, text: `${exp.runs.length} runs` },
+    {
+      icon: <LayersIcon />,
+      text: exp.cases?.length ? `${exp.cases.length} past bugs · ${exp.runs.length} runs` : `${exp.runs.length} runs`,
+    },
     { icon: <ClockIcon />, text: `~ ${formatDuration(exp.durationS)}` },
   ];
   return (

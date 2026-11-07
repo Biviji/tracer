@@ -83,6 +83,57 @@ export interface Run {
   tokensIn: number | null;
   tokensOut: number | null;
   llmCalls: number | null;
+  /** Past-bug replay: which bug (ReplayCase.id) this run attempted. */
+  caseId: string | null;
+}
+
+/* ---------- past-bug replay ---------- */
+
+export type ExperimentMode = "task" | "replay";
+export type CaseStatus = "pending" | "valid" | "invalid";
+
+/** A past commit that fixed a bug and came with a test: a ready-made exam. */
+export interface ReplayCandidate {
+  id: string;
+  sha: string;
+  title: string;
+  date: string;
+  sourceFiles: string[];
+  testFiles: string[];
+  linesChanged: number;
+}
+
+export interface ReplayCase extends ReplayCandidate {
+  /** What every run of this bug was told (the fix's commit message as a bug report). */
+  task: string;
+  /** What the engineer changed in the code: the answer key. */
+  humanDiff: FileDiff[];
+  /** valid = its test fails before the fix and passes with it; only valid bugs are scored. */
+  status: CaseStatus;
+  reason: string | null;
+}
+
+export interface ScanResult {
+  repo: string;
+  commitsScanned: number;
+  candidates: ReplayCandidate[];
+}
+
+export interface CaseModelScore {
+  agentId: string;
+  agentName: string;
+  runs: number;
+  passed: number;
+  /** Passing runs that changed the same lines as the engineer. */
+  sameAsHuman: number;
+}
+
+export interface CaseScore {
+  caseId: string;
+  title: string;
+  status: CaseStatus;
+  reason: string | null;
+  models: CaseModelScore[];
 }
 
 /* ---------- experiments ---------- */
@@ -131,6 +182,10 @@ export interface ModelScore {
   /** Only when a price is configured for the model. */
   costUsd: number | null;
   costPerPassUsd: number | null;
+  /** Replay only: valid bugs, bugs with a passing run, bugs passed in >= 80% of runs. */
+  bugsTotal?: number | null;
+  bugsFixed?: number | null;
+  bugsReliable?: number | null;
 }
 
 export interface Insights {
@@ -140,6 +195,8 @@ export interface Insights {
   summary: string | null;
   groups: RunGroup[];
   models: ModelScore[];
+  /** Replay: one row per bug with each model's result. */
+  cases?: CaseScore[];
 }
 
 export interface AgentRef {
@@ -157,6 +214,8 @@ export interface ExperimentSummary {
   title: string;
   task: string;
   repo: string;
+  /** "task" = one task you wrote; "replay" = the repo's own past bug fixes. */
+  mode?: ExperimentMode;
   /** First model (kept for older clients); `agents` lists every model. */
   agentId: string;
   agentName: string;
@@ -175,11 +234,17 @@ export interface Experiment extends ExperimentSummary {
   limits: SandboxLimits;
   runs: Run[];
   insights: Insights | null;
+  /** Replay: the bugs being re-done. */
+  cases?: ReplayCase[];
 }
 
 export interface CreateExperimentRequest {
   repo: string;
-  task: string;
+  /** Not needed for replay: every bug brings its own. */
+  task?: string;
+  mode?: ExperimentMode;
+  /** Replay: ids from scanRepo. `runs` is then per bug per model. */
+  caseIds?: string[];
   /** Models to compare (1–4); each gets `runs` runs. */
   agentIds: string[];
   /** Runs per model. */

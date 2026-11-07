@@ -16,3 +16,7 @@ export const DEFAULT_RUN_COUNT = 5;
 /** Models one experiment can compare, and total runs across them (mirrors MAX_TOTAL_RUNS). */
 export const MAX_MODELS = 4;
 export const MAX_TOTAL_RUNS = 20;
+/** Past-bug replay: bugs per experiment (mirrors MAX_REPLAY_CASES) and runs per bug per model. */
+export const MAX_REPLAY_CASES = 6;
+export const REPLAY_RUN_OPTIONS = [1, 2, 3, 5] as const;
+export const DEFAULT_REPLAY_RUNS = 2;

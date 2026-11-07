@@ -66,13 +66,14 @@ export function makeRun(
   const testsTotal = 24;
   return {
     index,
+    caseId: null,
     status: outcome,
     durationS,
     steps: labels.map((label, i) => ({ index: i + 1, label })),
     diff,
     testsPassed: outcome === "pass" ? testsTotal : outcome === "fail" ? testsTotal - 2 : null,
     testsTotal: outcome === "error" ? null : testsTotal,
-    exitReason: outcome === "pass" ? null : exitReason ?? "tests_failed",
+    exitReason: outcome === "pass" ? null : (exitReason ?? "tests_failed"),
     answer,
     agentId: "",
     agentName: "",
@@ -114,14 +115,16 @@ const authPass = [
 const authWrongFile = [...authPass.slice(0, 2), "Edit middleware.py — reorder auth flow", ...authPass.slice(3)];
 const authRemoveGuard = [...authPass.slice(0, 2), "Edit middleware.py — remove guard", ...authPass.slice(3)];
 const authGood: FileDiff[] = [
-  { file: "jwt.py", lines: [{ op: "+", text: "Add missing null check" }, { op: "+", text: "Update token validation" }] },
+  {
+    file: "jwt.py",
+    lines: [
+      { op: "+", text: "Add missing null check" },
+      { op: "+", text: "Update token validation" },
+    ],
+  },
 ];
-const authBad1: FileDiff[] = [
-  { file: "middleware.py", lines: [{ op: "-", text: "Change auth flow order" }] },
-];
-const authBad2: FileDiff[] = [
-  { file: "middleware.py", lines: [{ op: "-", text: "Remove existing guard" }] },
-];
+const authBad1: FileDiff[] = [{ file: "middleware.py", lines: [{ op: "-", text: "Change auth flow order" }] }];
+const authBad2: FileDiff[] = [{ file: "middleware.py", lines: [{ op: "-", text: "Remove existing guard" }] }];
 
 /* ---------- EXP-040: CSV parser, splits at step 2, one run killed at the time cap ---------- */
 const csvPass = [
@@ -140,14 +143,24 @@ const csvDropHeader = [
 ];
 const csvLoop = ["Clone repository", "Read header parsing logic", "Edit parser.py — retry until data"];
 const csvGood: FileDiff[] = [
-  { file: "parser.py", lines: [{ op: "+", text: "Guard empty rows" }, { op: "+", text: "Handle BOM header" }] },
+  {
+    file: "parser.py",
+    lines: [
+      { op: "+", text: "Guard empty rows" },
+      { op: "+", text: "Handle BOM header" },
+    ],
+  },
 ];
 const csvBad: FileDiff[] = [
-  { file: "parser.py", lines: [{ op: "-", text: "Drop header row" }, { op: "-", text: "Skip validation" }] },
+  {
+    file: "parser.py",
+    lines: [
+      { op: "-", text: "Drop header row" },
+      { op: "-", text: "Skip validation" },
+    ],
+  },
 ];
-const csvLoopDiff: FileDiff[] = [
-  { file: "parser.py", lines: [{ op: "-", text: "while not rows: rows = read()" }] },
-];
+const csvLoopDiff: FileDiff[] = [{ file: "parser.py", lines: [{ op: "-", text: "while not rows: rows = read()" }] }];
 
 const limiter = [
   "Clone repository",
@@ -157,7 +170,13 @@ const limiter = [
   "Finalize changes",
 ];
 const limiterDiff: FileDiff[] = [
-  { file: "limiter.py", lines: [{ op: "+", text: "Fix window reset race" }, { op: "+", text: "Add atomic counter" }] },
+  {
+    file: "limiter.py",
+    lines: [
+      { op: "+", text: "Fix window reset race" },
+      { op: "+", text: "Add atomic counter" },
+    ],
+  },
 ];
 
 export function seedExperiments(): Experiment[] {

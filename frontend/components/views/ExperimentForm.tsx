@@ -8,13 +8,22 @@ import { WorkflowDemoButton } from "@/components/WorkflowDemo";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
-import { DEFAULT_RUN_COUNT, MAX_MODELS, MAX_TOTAL_RUNS, RUN_COUNT_OPTIONS } from "@/lib/config";
+import {
+  DEFAULT_REPLAY_RUNS,
+  DEFAULT_RUN_COUNT,
+  MAX_MODELS,
+  MAX_TOTAL_RUNS,
+  REPLAY_RUN_OPTIONS,
+  RUN_COUNT_OPTIONS,
+} from "@/lib/config";
 import { errorMessage } from "@/lib/errors";
 import { rememberOwner } from "@/lib/owner";
 import { useApi } from "@/lib/hooks/useApi";
 import { useHealth } from "@/lib/hooks/useHealth";
 import { LockIcon } from "../ContainmentStrip";
 import { DottedRule, PageHeader } from "../ui/PageHeader";
+import { PastBugs } from "./PastBugs";
+import type { ExperimentMode } from "@/lib/types";
 
 const MIN_TASK_LENGTH = 10;
 
@@ -26,7 +35,7 @@ const fieldInput =
 const TOUR: TourStep[] = [
   {
     title: "Welcome to TRACE",
-    body: "TRACE runs the same coding task many times, each in its own locked sandbox, and shows how often the agent gets it right. Here's the form in six quick steps.",
+    body: "TRACE tests AI coding agents on real work, many times each, in locked sandboxes, and shows how often they get it right. Here's the form in six quick steps.",
   },
   {
     target: "repo",
@@ -35,8 +44,8 @@ const TOUR: TourStep[] = [
   },
   {
     target: "task",
-    title: "2 · Describe the task",
-    body: "Plain English, like you'd tell a teammate. Every run gets exactly this text — add rules such as “don't change the tests”.",
+    title: "2 · What should the agent fix?",
+    body: "Past bugs: TRACE finds bugs your repo already fixed (a commit that changed the code and added a test), rolls the code back, and asks each model to fix them again. The test stays hidden until the check. Or switch to “One task” and write your own.",
   },
   {
     target: "check",
@@ -51,12 +60,12 @@ const TOUR: TourStep[] = [
   {
     target: "runs",
     title: "5 · How many runs",
-    body: "Runs per model. Each is a separate sandbox. One run proves nothing — 5 gives a first reliability number.",
+    body: "Each run is a separate sandbox. One run proves nothing: repeat runs show whether a model fixes a bug reliably or just got lucky.",
   },
   {
     target: "launch",
     title: "6 · Launch",
-    body: "You'll watch every run live, then get a report: checked pass rate, what each run changed, and which runs cheated. Sandboxes are destroyed after.",
+    body: "You'll watch every run live, then get a scorecard: which model fixed which bug, how reliably, at what cost, and whether it matched the engineer's fix. Sandboxes are destroyed after.",
   },
 ];
 
@@ -71,8 +80,12 @@ export function ExperimentForm() {
   // Only a confirmed outage blocks launching; an unreachable /health is left to the submit error.
   const providerDown = health?.inferenceOk === false;
 
-  const tour = useFirstVisitTour("trace-tour-new-v1");
+  const tour = useFirstVisitTour("trace-tour-new-v2");
+  const [mode, setMode] = useState<ExperimentMode>("replay");
+  const replay = mode === "replay";
   const [repo, setRepo] = useState(DEMO_REPO);
+  const [caseIds, setCaseIds] = useState<string[]>([]);
+  const [replayRuns, setReplayRuns] = useState<number>(DEFAULT_REPLAY_RUNS);
   const [task, setTask] = useState(DEMO_TASK);
   const [checkCommand, setCheckCommand] = useState(DEMO_CHECK);
   const [picked, setPicked] = useState<string[] | null>(null);
@@ -82,11 +95,12 @@ export function ExperimentForm() {
 
   const isDemo = repo.trim() === DEMO_REPO && task.trim() === DEMO_TASK && checkCommand.trim() === DEMO_CHECK;
   const selected = picked ?? (agents.data?.[0] ? [agents.data[0].id] : []);
-  const total = runs * selected.length;
+  const perModel = replay ? replayRuns : runs;
+  const total = perModel * selected.length * (replay ? caseIds.length : 1);
   const tooMany = total > MAX_TOTAL_RUNS;
-  const taskTooShort = task.trim().length < MIN_TASK_LENGTH;
-  const canSubmit =
-    !submitting && !providerDown && repo.trim() !== "" && !taskTooShort && selected.length > 0 && !tooMany;
+  const taskTooShort = !replay && task.trim().length < MIN_TASK_LENGTH;
+  const whatReady = replay ? caseIds.length > 0 && checkCommand.trim() !== "" : !taskTooShort;
+  const canSubmit = !submitting && !providerDown && repo.trim() !== "" && whatReady && selected.length > 0 && !tooMany;
 
   function toggle(id: string) {
     const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
@@ -100,13 +114,24 @@ export function ExperimentForm() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const created = await api.createExperiment({
-        repo: repo.trim(),
-        task: task.trim(),
-        agentIds: selected,
-        runs,
-        checkCommand: checkCommand.trim() || null,
-      });
+      const created = await api.createExperiment(
+        replay
+          ? {
+              repo: repo.trim(),
+              mode: "replay",
+              caseIds,
+              agentIds: selected,
+              runs: replayRuns,
+              checkCommand: checkCommand.trim(),
+            }
+          : {
+              repo: repo.trim(),
+              task: task.trim(),
+              agentIds: selected,
+              runs,
+              checkCommand: checkCommand.trim() || null,
+            },
+      );
       rememberOwner(created.id, created.ownerToken);
       router.push(`/experiments/${created.id}`);
     } catch (err) {
@@ -120,20 +145,54 @@ export function ExperimentForm() {
       <PageHeader
         eyebrow="NEW EXPERIMENT"
         title={["RUN AN", "EXPERIMENT"]}
-        lede="Give the agent one task. We run it N times in isolated Vultr sandboxes, check every result, and measure how often it really works."
+        lede={
+          replay
+            ? "Which AI can you trust to fix bugs in your code? TRACE replays your repo's own past bugs: each model fixes them again, several times, in isolated Vultr sandboxes, checked by the real tests."
+            : "Give the agent one task. We run it N times in isolated Vultr sandboxes, check every result, and measure how often it really works."
+        }
         size="hero"
       />
       <DottedRule />
 
       <form className="max-w-[720px]" onSubmit={onSubmit} noValidate>
+        <div role="tablist" aria-label="What to test" className="mb-4 grid grid-cols-2 border-2 border-ink">
+          {(
+            [
+              ["replay", "PAST BUGS", "your repo's real bug fixes"],
+              ["task", "ONE TASK", "write it yourself"],
+            ] as const
+          ).map(([m, label, sub]) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => setMode(m)}
+              className={`px-3 py-2.5 text-left ${mode === m ? "bg-ink text-paper" : "bg-card text-ink hover:bg-paper"}`}
+            >
+              <b className="block font-display text-[13px] tracking-[.06em]">{label}</b>
+              <small className={`text-[11px] ${mode === m ? "text-paper/70" : "text-muted"}`}>{sub}</small>
+            </button>
+          ))}
+        </div>
+
         <aside className="mb-[22px] border-2 border-accent bg-card p-4 text-[13px] leading-relaxed">
           <p className="mb-1.5 text-[11px] uppercase tracking-[0.12em] text-accent">First time here? Try the demo</p>
-          <p>
-            To see how TRACE works without hunting for a repo, keep <code>demo</code> below and press <b>Launch</b> at
-            the bottom. It&apos;s a small Python shop library with four planted bugs and 9 failing tests — one of them a
-            trap that naive fixes fall into. Each run gets its own sandbox; results show up live in about a minute, and
-            you&apos;ll see which runs fixed it, which didn&apos;t, and what each one changed.
-          </p>
+          {replay ? (
+            <p>
+              Keep <code>demo</code> and press <b>Launch</b>. The demo shop library has a git history with four real bug
+              fixes, each with the test that proved it. TRACE rolls the code back to just before each fix, gives the bug
+              report to every model, and checks their fixes with the hidden tests. You get a scorecard: which model
+              fixed which bug, how reliably, and whether it matched the engineer&apos;s fix.
+            </p>
+          ) : (
+            <p>
+              To see how TRACE works without hunting for a repo, keep <code>demo</code> below and press <b>Launch</b> at
+              the bottom. It&apos;s a small Python shop library with four planted bugs and 9 failing tests — one of them
+              a trap that naive fixes fall into. Each run gets its own sandbox; results show up live in about a minute,
+              and you&apos;ll see which runs fixed it, which didn&apos;t, and what each one changed.
+            </p>
+          )}
           <p className="mt-2 text-[12px]">
             New to TRACE?{" "}
             <WorkflowDemoButton className="underline decoration-accent decoration-2 underline-offset-2">
@@ -169,12 +228,23 @@ export function ExperimentForm() {
             aria-describedby="repo-hint"
           />
           <p id="repo-hint" className="mt-1 text-[11px] text-muted">
-            <code>demo</code> = the built-in buggy shop library. Or paste a public repo URL from GitHub, GitLab,
-            Bitbucket or Codeberg.
+            <code>demo</code> = the built-in shop library. Or paste a public repo URL from GitHub, GitLab, Bitbucket or
+            Codeberg.
           </p>
         </div>
 
-        <div className="mb-[18px]" data-tour="task">
+        {replay && (
+          <fieldset className="mb-[18px]" data-tour="task">
+            <legend className={fieldLabel}>Past bugs to replay</legend>
+            <p className="-mt-1 mb-2 text-[11px] text-muted">
+              Commits that fixed a bug and added a test. Each model starts from the code just before the fix, gets the
+              commit message as the bug report, and never sees the test until its fix is checked.
+            </p>
+            <PastBugs repo={repo} picked={caseIds} onPick={setCaseIds} />
+          </fieldset>
+        )}
+
+        <div className={`mb-[18px] ${replay ? "hidden" : ""}`} data-tour={replay ? undefined : "task"}>
           <label htmlFor="task" className={fieldLabel}>
             Task given to the agent
           </label>
@@ -212,11 +282,14 @@ export function ExperimentForm() {
             aria-describedby="check-hint"
           />
           <p id="check-hint" className="mt-1 text-[11px] text-muted">
-            Runs after each agent in a fresh sandbox with your original tests put back. A run passes only if this exits
-            0 — and a run that edited the tests never passes.{" "}
+            Runs after each agent in a fresh sandbox with your original tests put back
+            {replay ? " and the fix's hidden tests added" : ""}. A run passes only if this exits 0 — and a run that
+            edited the tests never passes.{" "}
             {!checkCommand.trim() && (
               <span className="text-fail-line">
-                Empty: PASS will only mean &ldquo;the agent said it&apos;s done&rdquo;.
+                {replay
+                  ? "Required for past bugs: it's how a fix is checked."
+                  : "Empty: PASS will only mean “the agent said it's done”."}
               </span>
             )}
           </p>
@@ -269,28 +342,31 @@ export function ExperimentForm() {
         </fieldset>
 
         <fieldset className="mb-[18px]" data-tour="runs">
-          <legend className={fieldLabel}>Runs per model</legend>
+          <legend className={fieldLabel}>{replay ? "Runs per bug, per model" : "Runs per model"}</legend>
           <p className="-mt-1 mb-2 text-[11px] text-muted">
-            One run tells you nothing about reliability. 5 is a good start; 10 gives a steadier number but takes longer.
-            {selected.length > 1 && (
+            {replay
+              ? "2 runs show whether a fix is repeatable; 3+ gives a steadier reliability number."
+              : "One run tells you nothing about reliability. 5 is a good start; 10 gives a steadier number but takes longer."}
+            {(selected.length > 1 || replay) && (
               <>
                 {" "}
-                Total: {runs} × {selected.length} models ={" "}
+                Total: {replay && `${caseIds.length} bugs × `}
+                {perModel} × {selected.length} model{selected.length === 1 ? "" : "s"} ={" "}
                 <b className={tooMany ? "text-fail-line" : "text-ink"}>{total} runs</b>
                 {tooMany && ` (max ${MAX_TOTAL_RUNS})`}.
               </>
             )}
           </p>
           <div role="radiogroup" className="flex flex-wrap gap-2">
-            {RUN_COUNT_OPTIONS.map((n) => (
+            {(replay ? REPLAY_RUN_OPTIONS : RUN_COUNT_OPTIONS).map((n) => (
               <button
                 key={n}
                 type="button"
                 role="radio"
-                aria-checked={runs === n}
-                onClick={() => setRuns(n)}
+                aria-checked={perModel === n}
+                onClick={() => (replay ? setReplayRuns(n) : setRuns(n))}
                 className={`border-2 px-[15px] py-[9px] font-display font-extrabold ${
-                  runs === n ? "border-ink bg-ink text-paper" : "border-line bg-card"
+                  perModel === n ? "border-ink bg-ink text-paper" : "border-line bg-card"
                 }`}
               >
                 {n}
@@ -341,9 +417,11 @@ export function ExperimentForm() {
             </>
           ) : (
             <>
-              {selected.length > 1
-                ? `LAUNCH ${total} RUNS · ${selected.length} MODELS`
-                : `LAUNCH ${runs} PARALLEL RUNS`}{" "}
+              {replay
+                ? `REPLAY ${caseIds.length} BUG${caseIds.length === 1 ? "" : "S"} · ${total} RUNS`
+                : selected.length > 1
+                  ? `LAUNCH ${total} RUNS · ${selected.length} MODELS`
+                  : `LAUNCH ${runs} PARALLEL RUNS`}{" "}
               <span aria-hidden>→</span>
             </>
           )}
