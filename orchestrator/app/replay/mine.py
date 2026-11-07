@@ -42,8 +42,8 @@ TASK_TEMPLATE = """A bug was reported in this repository:
 
 {report}
 
-Find the cause in the code and fix it. Keep the fix focused on this bug. Don't change the tests:
-hidden tests will check your fix."""
+Find the cause in the code and fix it. Keep the fix focused on this bug. Don't change the tests: hidden tests \
+will check your fix."""
 
 
 def _git(git_dir: Path, *args: str, check: bool = True) -> str:
@@ -65,8 +65,26 @@ def _is_source(path: str) -> bool:
 
 
 def _report(message: str) -> str:
-    lines = [ln for ln in message.strip().splitlines() if not _TRAILER.match(ln.strip())]
-    return "\n".join(lines).strip()[:1500]
+    """The commit message as a bug report: trailers dropped, hard-wrapped paragraphs joined."""
+    lines = [ln.rstrip() for ln in message.strip().splitlines() if not _TRAILER.match(ln.strip())]
+    paragraphs: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        if current:
+            paragraphs.append(" ".join(current))
+            current.clear()
+
+    for ln in lines:
+        if not ln.strip():
+            flush()
+        elif ln.lstrip().startswith(("-", "*", "•")) or ln.startswith(("    ", "\t")):
+            flush()
+            paragraphs.append(ln)  # list items and code keep their own lines
+        else:
+            current.append(ln.strip())
+    flush()
+    return "\n\n".join(paragraphs).strip()[:1500]
 
 
 def clone_history(url: str, dest: Path, *, timeout_s: int, max_mb: int, depth: int = HISTORY_DEPTH) -> Path:
