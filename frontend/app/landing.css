@@ -89,6 +89,9 @@
 
 /* hero entrance */
 .landing .hero > * { animation: hb-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+/* The entrance animation gives each hero block its own layer; keep the text and buttons above the
+   eclipse (inside .demostage), whose orbits rise behind them. */
+.landing .hero > :not(.demostage) { position: relative; z-index: 2; }
 .landing .hero > :nth-child(2) { animation-delay: 0.08s; }
 .landing .hero > :nth-child(3) { animation-delay: 0.18s; }
 .landing .hero > :nth-child(4) { animation-delay: 0.28s; }
