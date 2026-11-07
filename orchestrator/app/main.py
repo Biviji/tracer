@@ -1,5 +1,7 @@
 """FastAPI entry point:  uvicorn app.main:app --port 8000"""
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 
@@ -17,6 +19,19 @@ from app.sandbox import SandboxDriver, build_driver
 from app.store import Store
 
 log = logging.getLogger("trace")
+
+#: How often finished experiments past RETENTION_DAYS are deleted.
+PURGE_EVERY_S = 3600.0
+
+
+async def _purge_loop(manager: ExperimentManager) -> None:
+    while True:
+        try:
+            if deleted := manager.purge_expired():
+                log.info("retention: deleted %d experiment(s): %s", len(deleted), deleted)
+        except Exception:
+            log.exception("retention purge failed")
+        await asyncio.sleep(PURGE_EVERY_S)
 
 
 def create_app(
@@ -42,9 +57,13 @@ def create_app(
         manager = ExperimentManager(settings, store, bus, sandbox)
         app.state.services = Services(settings, store, bus, sandbox, model, manager)
         log.info("orchestrator up: sandbox=%s inference=%s", sandbox.name, model.name)
+        purge = asyncio.create_task(_purge_loop(manager), name="retention")
         try:
             yield
         finally:
+            purge.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await purge
             await manager.shutdown()
             await model.aclose()
             store.dispose()

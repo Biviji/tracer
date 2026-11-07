@@ -5,7 +5,7 @@ All calls run on the event loop thread; SQLite writes are sub-millisecond at
 this scale. Moving to Postgres is the point to switch to an async driver.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    func,
     inspect,
     select,
     text,
@@ -58,6 +59,8 @@ class Base(DeclarativeBase):
 
 class ExperimentRow(Base):
     __tablename__ = "experiments"
+    # Never reuse a deleted experiment's id: old links must not open someone else's report.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(64))
@@ -75,6 +78,8 @@ class ExperimentRow(Base):
     #: Every model in the experiment: [{"id", "name", "model"}]. NULL on rows from before multi-model.
     agents: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     check_command: Mapped[str | None] = mapped_column(Text)
+    #: sha256 of the owner token given to the creating browser; NULL on older rows (no owner).
+    owner_hash: Mapped[str | None] = mapped_column(String(64))
 
     runs: Mapped[list["RunRow"]] = relationship(
         back_populates="experiment", order_by="RunRow.index", cascade="all, delete-orphan"
@@ -121,6 +126,7 @@ _ADDED_COLUMNS = [
     ("runs", "llm_calls", "INTEGER"),
     ("experiments", "agents", "JSON"),
     ("experiments", "check_command", "TEXT"),
+    ("experiments", "owner_hash", "VARCHAR(64)"),
 ]
 
 
@@ -243,6 +249,23 @@ class Store:
                 return {}
             return {a["id"]: a["model"] for a in row.agents} if row.agents else {row.agent_id: row.model}
 
+    def owner_hash(self, experiment_id: str) -> str | None:
+        with self._session() as s:
+            seq = parse_id(experiment_id)
+            row = s.get(ExperimentRow, seq) if seq is not None else None
+            return row.owner_hash if row else None
+
+    def runs_since(self, since: datetime) -> int:
+        """Runs in experiments created at or after `since` (UTC): what the spend caps count."""
+        with self._session() as s:
+            q = (
+                select(func.count())
+                .select_from(RunRow)
+                .join(ExperimentRow)
+                .where(ExperimentRow.created_at >= since.astimezone(UTC).replace(tzinfo=None))
+            )
+            return s.scalar(q) or 0
+
     # ---- writes ----
 
     def create(
@@ -254,6 +277,7 @@ class Store:
         runs: int,
         limits: SandboxLimits,
         check_command: str | None = None,
+        owner_hash: str | None = None,
     ) -> Experiment:
         """`runs` per model; run indexes are model by model (1..runs = first model, ...)."""
         first = agents[0]
@@ -280,6 +304,7 @@ class Store:
                 model=first.model,
                 agents=[{"id": a.id, "name": a.name, "model": a.model} for a in agents],
                 check_command=check_command or None,
+                owner_hash=owner_hash,
                 status="queued",
                 created_at=datetime.now(UTC).replace(tzinfo=None),
                 limits=limits.model_dump(),
@@ -344,6 +369,29 @@ class Store:
             row.insights = insights.model_dump() if insights else None
             row.duration_s = duration_s
             return closed
+
+    def delete(self, experiment_id: str) -> bool:
+        with self._session() as s, s.begin():
+            row = self._load(s, experiment_id)
+            if row is None:
+                return False
+            s.delete(row)  # runs go with it (cascade)
+            return True
+
+    def delete_older_than(self, days: int) -> list[str]:
+        """Retention: delete finished experiments created more than `days` days ago."""
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).replace(tzinfo=None)
+        with self._session() as s, s.begin():
+            rows = s.scalars(
+                select(ExperimentRow)
+                .options(selectinload(ExperimentRow.runs))
+                .where(ExperimentRow.created_at < cutoff)
+                .where(ExperimentRow.status.not_in(ACTIVE_EXPERIMENT_STATUSES))
+            ).all()
+            ids = [format_id(r.seq) for r in rows]
+            for r in rows:
+                s.delete(r)
+            return ids
 
     def fail_interrupted(self) -> list[str]:
         """On startup: experiments left active by a crash or restart can never finish."""

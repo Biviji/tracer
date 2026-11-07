@@ -174,6 +174,12 @@ class ExperimentSummary(ApiModel):
     scores: Scores | None = None
 
 
+class CreatedExperiment(ExperimentSummary):
+    #: Returned once, only to the browser that created the experiment. Proves ownership for
+    #: cancel and delete. Only its hash is stored.
+    owner_token: str
+
+
 class Experiment(ExperimentSummary):
     duration_s: float | None = None
     check_command: str | None = None

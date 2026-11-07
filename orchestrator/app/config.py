@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     max_runs_per_hour: int = Field(default=0, ge=0)
     #: Same, per visitor (client IP), so one person can't use up the whole hourly budget. 0 = off.
     max_runs_per_client_per_hour: int = Field(default=0, ge=0)
+    #: Daily ceiling on total runs, the hard stop on what a public site can spend. 0 = unlimited.
+    max_runs_per_day: int = Field(default=0, ge=0)
+    #: Finished experiments (task, outputs, diffs) are deleted after this many days. 0 = keep forever.
+    retention_days: int = Field(default=30, ge=0)
     sandbox_timeout_s: int = Field(default=300, ge=1)
     sandbox_memory_mb: int = Field(default=1024, ge=64)
     sandbox_cpus: float = Field(default=1.0, gt=0)

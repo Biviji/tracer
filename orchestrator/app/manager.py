@@ -7,6 +7,7 @@ Containment rules enforced here regardless of driver:
 """
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 import logging
 import time
 from itertools import zip_longest
@@ -94,7 +95,9 @@ class ExperimentManager:
             timeout_s=s.sandbox_timeout_s, memory_mb=s.sandbox_memory_mb, cpus=s.sandbox_cpus, network="none"
         )
 
-    async def create(self, req: CreateExperimentRequest, client: str = "") -> ExperimentSummary:
+    async def create(
+        self, req: CreateExperimentRequest, client: str = "", owner_hash: str | None = None
+    ) -> ExperimentSummary:
         ids = req.model_ids()
         if not ids:
             raise Invalid("Pick at least one model")
@@ -124,6 +127,7 @@ class ExperimentManager:
             runs=req.runs,
             limits=self.limits(),
             check_command=req.check_command or None,
+            owner_hash=owner_hash,
         )
         task = asyncio.create_task(self._execute(exp), name=f"experiment {exp.id}")
         self._tasks[exp.id] = task
@@ -132,21 +136,26 @@ class ExperimentManager:
         return exp.summary()
 
     def _check_hourly_caps(self, runs: int, client: str) -> None:
-        """Spend guard for a public site: total runs per rolling hour, and per visitor."""
-        total_cap = self._settings.max_runs_per_hour
-        client_cap = self._settings.max_runs_per_client_per_hour
-        if not total_cap and not client_cap:
-            return
+        """Spend guard for a public site: total runs per rolling hour and per day (counted in the
+        database, so a restart doesn't reset them), and per visitor per hour (in memory: IPs are
+        never stored)."""
+        s = self._settings
         now = time.monotonic()
         self._recent_runs = [r for r in self._recent_runs if now - r[0] < 3600]
-        if client_cap and client:
+        if s.max_runs_per_client_per_hour and client:
+            cap = s.max_runs_per_client_per_hour
             used = sum(n for _, c, n in self._recent_runs if c == client)
-            if used + runs > client_cap:
-                raise Busy(f"You've used {used} of your {client_cap} runs this hour. Try again later or with fewer runs.")
-        if total_cap:
-            used = sum(n for _, _, n in self._recent_runs)
-            if used + runs > total_cap:
-                raise Busy(f"Hourly limit reached ({used}/{total_cap} runs used). Try again later or with fewer runs.")
+            if used + runs > cap:
+                raise Busy(f"You've used {used} of your {cap} runs this hour. Try again later or with fewer runs.")
+        utc_now = datetime.now(UTC)
+        for cap, window, label in (
+            (s.max_runs_per_hour, timedelta(hours=1), "Hourly"),
+            (s.max_runs_per_day, timedelta(days=1), "Daily"),
+        ):
+            if cap:
+                used = self._store.runs_since(utc_now - window)
+                if used + runs > cap:
+                    raise Busy(f"{label} limit reached ({used}/{cap} runs used). Try again later or with fewer runs.")
         self._recent_runs.append((now, client, runs))
 
     async def cancel(self, experiment_id: str) -> None:
@@ -161,6 +170,15 @@ class ExperimentManager:
             return
         task.cancel()
         await asyncio.wait([task])  # returns once sandboxes are torn down and state is saved
+
+    async def delete(self, experiment_id: str) -> None:
+        """Stop it if it's still running (sandboxes destroyed), then remove it and its runs."""
+        await self.cancel(experiment_id)
+        self._store.delete(experiment_id)
+
+    def purge_expired(self) -> list[str]:
+        days = self._settings.retention_days
+        return self._store.delete_older_than(days) if days else []
 
     async def shutdown(self) -> None:
         tasks = list(self._tasks.values())

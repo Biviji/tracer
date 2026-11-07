@@ -47,6 +47,10 @@ def create(client, runs=4, **body):
     return res.json()
 
 
+def owner(exp):
+    return {"x-owner-token": exp["ownerToken"]}
+
+
 def wait_for(client, exp_id, statuses, timeout=10.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -85,17 +89,19 @@ def test_full_experiment_lifecycle(tmp_path):
 def test_cancel_destroys_running_sandboxes(tmp_path):
     driver = HangingDriver()
     with make_client(tmp_path, driver=driver, max_parallel_sandboxes=2) as client:
-        exp_id = create(client, runs=3)["id"]
+        created = create(client, runs=3)
+        exp_id = created["id"]
         wait_for(client, exp_id, {"running"})
 
-        assert client.post(f"/experiments/{exp_id}/cancel").status_code == 204
+        assert client.post(f"/experiments/{exp_id}/cancel").status_code == 403  # not the owner
+        assert client.post(f"/experiments/{exp_id}/cancel", headers=owner(created)).status_code == 204
         exp = client.get(f"/experiments/{exp_id}").json()
 
         assert exp["status"] == "cancelled"
         assert [r["status"] for r in exp["runs"]] == ["cancelled"] * 3
         assert driver.cleaned_up == 2  # the two that had started; the third never got a slot
         # cancelling again is a harmless no-op
-        assert client.post(f"/experiments/{exp_id}/cancel").status_code == 204
+        assert client.post(f"/experiments/{exp_id}/cancel", headers=owner(created)).status_code == 204
 
 
 def test_runs_over_the_time_cap_are_killed(tmp_path):
@@ -208,3 +214,54 @@ def test_total_run_cap_across_models(tmp_path):
         assert res.status_code == 422 and "limit is 10" in res.text
         res = client.post("/experiments", json={"repo": "demo", "task": TASK, "agentIds": [], "runs": 2})
         assert res.status_code == 422
+
+
+def test_only_the_owner_can_delete_and_it_stops_running_sandboxes(tmp_path):
+    driver = HangingDriver()
+    with make_client(tmp_path, driver=driver) as client:
+        created = create(client, runs=2)
+        exp_id = created["id"]
+        wait_for(client, exp_id, {"running"})
+
+        assert client.delete(f"/experiments/{exp_id}").status_code == 403
+        assert client.delete(f"/experiments/{exp_id}", headers={"x-owner-token": "guess"}).status_code == 403
+        assert client.delete(f"/experiments/{exp_id}", headers=owner(created)).status_code == 204
+
+        assert driver.cleaned_up == 2
+        assert client.get(f"/experiments/{exp_id}").status_code == 404
+        assert client.get("/experiments").json() == []
+        # the id is never handed out again
+        assert create(client, runs=1)["id"] != exp_id
+
+
+def test_daily_cap_counts_runs_in_the_database(tmp_path):
+    with make_client(tmp_path, max_runs_per_day=5) as client:
+        create(client, runs=3)
+    # a restart must not reset the daily budget
+    with make_client(tmp_path, max_runs_per_day=5) as client:
+        res = client.post("/experiments", json={"repo": "demo-repo", "task": TASK, "agentId": "fake", "runs": 3})
+        assert res.status_code == 429 and "Daily limit" in res.json()["detail"]
+
+
+def test_retention_deletes_only_old_finished_experiments(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import update
+
+    from app.store import ExperimentRow
+
+    with make_client(tmp_path, retention_days=30) as client:
+        old = create(client, runs=1)["id"]
+        new = create(client, runs=1)["id"]
+        wait_for(client, old, {"completed"})
+        wait_for(client, new, {"completed"})
+        services = client.app.state.services
+        with services.store._session() as s, s.begin():
+            s.execute(
+                update(ExperimentRow)
+                .where(ExperimentRow.seq == 1)
+                .values(created_at=(datetime.now(UTC) - timedelta(days=31)).replace(tzinfo=None))
+            )
+        assert services.manager.purge_expired() == [old]
+        assert client.get(f"/experiments/{old}").status_code == 404
+        assert client.get(f"/experiments/{new}").status_code == 200
