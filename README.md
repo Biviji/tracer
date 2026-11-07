@@ -1,6 +1,6 @@
 # TRACE — Agent Reliability Lab
 
-> Run the same agent task N times in isolated sandboxes on Vultr, and measure how often the agent agrees with itself.
+> Which AI can you trust to fix bugs in your code? TRACE replays your repo's own past bugs: each model fixes them again, several times, in isolated Vultr sandboxes, checked by the real tests it never saw.
 
 Built for **Vultr Track 01 · Blast Radius Zero**: a web agent that does real work (it writes and runs code) and keeps every action inside an isolated, disposable sandbox.
 
@@ -12,6 +12,30 @@ TRACE answers both questions **on the team's own repo, with numbers**, instead o
 
 - **Can we trust it unattended?** Run the task N times and see how often the agent succeeds and how differently it gets there.
 - **Which model should we pay for?** Run the same task on each candidate model and compare pass rates and time.
+
+## Past-bug replay (the main mode)
+
+Nobody has a benchmark for *their* code, but every repo already contains one: its history. A commit
+that fixed a bug and added a test is an exam with a known answer.
+
+1. **Scan.** TRACE reads the last 400 commits and keeps the ones that look like bug fixes (`fix`,
+   `bug`, `#123`… in the message), change 1–5 source files and add or change a test.
+2. **Reproduce.** For each picked bug, in a sandbox with no model: the code just before the fix plus
+   the fix's tests must **fail**, and the engineer's fix must make them **pass**. Bugs that don't
+   reproduce are skipped and never scored.
+3. **Replay.** Each model gets the code before the fix (as a fresh repo, so there's no history to look
+   the fix up in) and the commit message as the bug report. The fix's tests stay hidden.
+4. **Check.** After the agent, the check command runs in a fresh offline sandbox with the hidden tests
+   added and any edited tests put back.
+5. **Scorecard.** Per model: bugs fixed, bugs fixed reliably (≥ 80% of runs), pass rate, how many fixes
+   changed the same lines as the engineer, time, tokens and cost per fix. Then bug by bug, with the
+   engineer's fix next to each result.
+
+The built-in `demo` has a generated history with four real bug fixes (and commits that aren't bug
+fixes, which the scan skips). Commit messages can hint at the fix; for a stricter test, use repos
+whose fix commits describe the symptom, not the solution.
+
+The **One task** mode is still there: write any task and run it N times per model.
 
 Typical uses: before letting a bot auto-fix failing tests, before routing CI breakages or small tickets to an agent, when choosing a model, and after changing the agent's prompt or setup.
 
