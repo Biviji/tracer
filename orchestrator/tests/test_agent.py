@@ -199,7 +199,7 @@ diff --git a/NEW.md b/NEW.md
 """
     files = parse_git_diff(text)
     assert [f.file for f in files] == ["src/Jwt.java", "NEW.md"]
-    assert [(l.op, l.text) for l in files[0].lines] == [
+    assert [(ln.op, ln.text) for ln in files[0].lines] == [
         ("-", 'String secret = "dev";'),
         ("+", 'String secret = System.getenv("JWT_SECRET");'),
     ]

@@ -6,7 +6,7 @@ def run(index, status, labels, file="a.py", exit_reason=None):
     return Run(
         index=index,
         status=status,
-        steps=[TraceStep(index=i + 1, label=l) for i, l in enumerate(labels)],
+        steps=[TraceStep(index=i + 1, label=lbl) for i, lbl in enumerate(labels)],
         diff=[FileDiff(file=file, lines=[DiffLine(op="+", text="x")])],
         exit_reason=exit_reason,
     )

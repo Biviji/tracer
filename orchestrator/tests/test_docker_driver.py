@@ -98,7 +98,7 @@ def test_real_sandbox_run(local_repo):
     assert ident.splitlines()[1:3] == ["1000", "0"]  # unprivileged, and no GROQ/secret env vars
     assert escape.startswith("ERROR: path must stay inside")
     assert [d.file for d in result.diff] == ["auth/jwt.py"]
-    assert ("+", "SECRET = os.environ['JWT_SECRET']") in [(l.op, l.text) for l in result.diff[0].lines]
+    assert ("+", "SECRET = os.environ['JWT_SECRET']") in [(ln.op, ln.text) for ln in result.diff[0].lines]
     # destroyed afterwards
     assert _client.containers.list(all=True, filters={"label": LABEL}) == []
     assert _client.volumes.list(filters={"label": LABEL}) == []
